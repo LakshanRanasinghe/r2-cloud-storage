@@ -53,6 +53,12 @@ class R2_REST_API {
 			'permission_callback' => array( $this, 'check_admin_permission' ),
 		) );
 
+		register_rest_route( $namespace, '/sync/reset-failed', array(
+			'methods'             => 'POST',
+			'callback'            => array( $this, 'reset_failed' ),
+			'permission_callback' => array( $this, 'check_admin_permission' ),
+		) );
+
 		register_rest_route( $namespace, '/sync/batch', array(
 			'methods'             => 'POST',
 			'callback'            => array( $this, 'sync_batch' ),
@@ -62,6 +68,24 @@ class R2_REST_API {
 		register_rest_route( $namespace, '/sync/progress', array(
 			'methods'             => 'GET',
 			'callback'            => array( $this, 'sync_progress' ),
+			'permission_callback' => array( $this, 'check_admin_permission' ),
+		) );
+
+		register_rest_route( $namespace, '/sync/folder/start', array(
+			'methods'             => 'POST',
+			'callback'            => array( $this, 'start_folder_sync' ),
+			'permission_callback' => array( $this, 'check_admin_permission' ),
+		) );
+
+		register_rest_route( $namespace, '/sync/folder/batch', array(
+			'methods'             => 'POST',
+			'callback'            => array( $this, 'sync_folder_batch' ),
+			'permission_callback' => array( $this, 'check_admin_permission' ),
+		) );
+
+		register_rest_route( $namespace, '/sync/folder/progress', array(
+			'methods'             => 'GET',
+			'callback'            => array( $this, 'sync_folder_progress' ),
 			'permission_callback' => array( $this, 'check_admin_permission' ),
 		) );
 
@@ -133,14 +157,20 @@ class R2_REST_API {
 	/**
 	 * POST /r2cs/v1/sync/start
 	 *
+	 * @param \WP_REST_Request $request
 	 * @return \WP_REST_Response
 	 */
-	public function start_sync() {
+	public function start_sync( \WP_REST_Request $request ) {
 		if ( ! $this->settings->is_configured() ) {
 			return new \WP_REST_Response( array(
 				'success' => false,
 				'message' => __( 'Configure R2 credentials before syncing.', 'r2-cloud-storage' ),
 			), 400 );
+		}
+
+		$reset_failed = $request->get_param( 'reset_failed' );
+		if ( null === $reset_failed || $reset_failed ) {
+			$this->sync->reset_failed_attachments();
 		}
 
 		$progress = $this->sync->get_progress();
@@ -152,16 +182,37 @@ class R2_REST_API {
 	}
 
 	/**
+	 * POST /r2cs/v1/sync/reset-failed
+	 *
+	 * @return \WP_REST_Response
+	 */
+	public function reset_failed() {
+		$reset_count = $this->sync->reset_failed_attachments();
+
+		return new \WP_REST_Response( array(
+			'success' => true,
+			'message' => sprintf(
+				/* translators: %d: number of attachments reset */
+				__( '%d failed attachment(s) have been reset and are ready to sync.', 'r2-cloud-storage' ),
+				$reset_count
+			),
+			'reset'   => $reset_count,
+			'stats'   => r2cs()->get( 'media' )->get_stats(),
+		) );
+	}
+
+	/**
 	 * POST /r2cs/v1/sync/batch
 	 *
 	 * @param \WP_REST_Request $request
 	 * @return \WP_REST_Response
 	 */
 	public function sync_batch( \WP_REST_Request $request ) {
-		$batch_size = $request->get_param( 'batch_size' );
-		$batch_size = $batch_size ? absint( $batch_size ) : R2_Sync::BATCH_SIZE;
+		$batch_size   = $request->get_param( 'batch_size' );
+		$batch_size   = $batch_size ? absint( $batch_size ) : R2_Sync::BATCH_SIZE;
+		$retry_failed = (bool) ( $request->get_param( 'retry_failed' ) ?? true );
 
-		$result = $this->sync->sync_batch( $batch_size );
+		$result = $this->sync->sync_batch( $batch_size, $retry_failed );
 
 		return new \WP_REST_Response( array(
 			'success' => true,
@@ -184,6 +235,65 @@ class R2_REST_API {
 	}
 
 	/**
+	 * POST /r2cs/v1/sync/folder/start
+	 *
+	 * @return \WP_REST_Response
+	 */
+	public function start_folder_sync() {
+		if ( ! $this->settings->is_configured() ) {
+			return new \WP_REST_Response( array(
+				'success' => false,
+				'message' => __( 'Configure R2 credentials before syncing.', 'r2-cloud-storage' ),
+			), 400 );
+		}
+
+		$init = $this->sync->init_folder_sync();
+
+		return new \WP_REST_Response( array(
+			'success'  => true,
+			'message'  => sprintf(
+				/* translators: 1: number of files, 2: folder name */
+				__( 'Found %1$d files in %2$s ready to sync.', 'r2-cloud-storage' ),
+				$init['total'],
+				$init['folder']
+			),
+			'progress' => $this->sync->get_folder_sync_progress(),
+		) );
+	}
+
+	/**
+	 * POST /r2cs/v1/sync/folder/batch
+	 *
+	 * @param \WP_REST_Request $request
+	 * @return \WP_REST_Response
+	 */
+	public function sync_folder_batch( \WP_REST_Request $request ) {
+		$batch_size = $request->get_param( 'batch_size' );
+		$batch_size = $batch_size ? absint( $batch_size ) : R2_Sync::BATCH_SIZE;
+
+		$result = $this->sync->sync_folder_batch( $batch_size );
+
+		return new \WP_REST_Response( array(
+			'success' => true,
+			'data'    => $result,
+		) );
+	}
+
+	/**
+	 * GET /r2cs/v1/sync/folder/progress
+	 *
+	 * @return \WP_REST_Response
+	 */
+	public function sync_folder_progress() {
+		$progress = $this->sync->get_folder_sync_progress();
+
+		return new \WP_REST_Response( array(
+			'success'  => true,
+			'progress' => $progress,
+		) );
+	}
+
+	/**
 	 * GET /r2cs/v1/stats
 	 *
 	 * @return \WP_REST_Response
@@ -194,6 +304,11 @@ class R2_REST_API {
 		$data = array(
 			'media'       => $media->get_stats(),
 			'configured'  => $this->settings->is_configured(),
+			'folder'      => array(
+				'name'  => basename( (string) $this->sync->get_uploads_folder_path() ),
+				'path'  => $this->sync->get_uploads_folder_path(),
+				'state' => $this->sync->get_folder_sync_progress(),
+			),
 			'addons'      => r2cs()->addons()->count_active(),
 		);
 

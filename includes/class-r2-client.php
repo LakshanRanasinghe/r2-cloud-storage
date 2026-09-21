@@ -88,8 +88,7 @@ class R2_Client {
 		}
 
 		if ( empty( $content_type ) ) {
-			$filetype     = wp_check_filetype( $local_path );
-			$content_type = $filetype['type'] ?: 'application/octet-stream';
+			$content_type = $this->detect_mime_type( $local_path );
 		}
 
 		$headers = array_merge(
@@ -331,6 +330,46 @@ class R2_Client {
 		return $this->get_endpoint() . '/' . ltrim( $remote_key, '/' );
 	}
 
+	/**
+	 * Detect MIME type for a file with robust fallbacks for WebP, PDF, AVIF, SVG, etc.
+	 *
+	 * @param string $file_path Local file path or filename.
+	 * @return string
+	 */
+	public function detect_mime_type( $file_path ) {
+		$filetype = wp_check_filetype( $file_path );
+		if ( ! empty( $filetype['type'] ) ) {
+			return $filetype['type'];
+		}
+
+		if ( function_exists( 'mime_content_type' ) && file_exists( $file_path ) ) {
+			$mime = @mime_content_type( $file_path );
+			if ( ! empty( $mime ) && 'application/octet-stream' !== $mime ) {
+				return $mime;
+			}
+		}
+
+		$ext = strtolower( pathinfo( $file_path, PATHINFO_EXTENSION ) );
+		$map = array(
+			'webp' => 'image/webp',
+			'pdf'  => 'application/pdf',
+			'jpg'  => 'image/jpeg',
+			'jpeg' => 'image/jpeg',
+			'png'  => 'image/png',
+			'gif'  => 'image/gif',
+			'svg'  => 'image/svg+xml',
+			'svgz' => 'image/svg+xml',
+			'avif' => 'image/avif',
+			'ico'  => 'image/x-icon',
+			'bmp'  => 'image/bmp',
+			'mp4'  => 'video/mp4',
+			'mp3'  => 'audio/mpeg',
+			'zip'  => 'application/zip',
+		);
+
+		return isset( $map[ $ext ] ) ? $map[ $ext ] : 'application/octet-stream';
+	}
+
 	// ------------------------------------------------------------------
 	//  Internal: HTTP + Signature V4
 	// ------------------------------------------------------------------
@@ -450,11 +489,12 @@ class R2_Client {
 		// Remove Host from wp_remote headers (WordPress sets it).
 		unset( $headers['Host'] );
 
+		$timeout = (int) apply_filters( 'r2cs_request_timeout', 120, $method, $path );
 		$args = array(
 			'method'    => $method,
 			'headers'   => $headers,
 			'body'      => $body,
-			'timeout'   => 60,
+			'timeout'   => $timeout,
 			'sslverify' => true,
 		);
 

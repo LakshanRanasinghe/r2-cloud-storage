@@ -171,6 +171,7 @@ class R2_Settings {
 		add_settings_field( 'offload_media', __( 'Auto Offload', 'r2-cloud-storage' ), array( $this, 'render_checkbox_field' ), 'r2-cloud-storage', 'r2cs_media', array( 'key' => 'offload_media', 'label' => __( 'Automatically upload new media to R2.', 'r2-cloud-storage' ) ) );
 		add_settings_field( 'remove_local', __( 'Remove Local Copy', 'r2-cloud-storage' ), array( $this, 'render_checkbox_field' ), 'r2-cloud-storage', 'r2cs_media', array( 'key' => 'remove_local', 'label' => __( 'Remove local file after uploading to R2. Saves disk space.', 'r2-cloud-storage' ) ) );
 		add_settings_field( 'path_prefix', __( 'Path Prefix', 'r2-cloud-storage' ), array( $this, 'render_text_field' ), 'r2-cloud-storage', 'r2cs_media', array( 'key' => 'path_prefix', 'description' => __( 'Prefix for object keys in R2.', 'r2-cloud-storage' ), 'placeholder' => 'wp-content/uploads/' ) );
+		add_settings_field( 'local_uploads_path', __( 'Local Uploads Directory Path', 'r2-cloud-storage' ), array( $this, 'render_text_field' ), 'r2-cloud-storage', 'r2cs_media', array( 'key' => 'local_uploads_path', 'description' => __( 'Absolute server path to your local uploads directory (e.g. <code>/srv/htdocs/besv-uploads</code>). Leave empty to auto-detect.', 'r2-cloud-storage' ), 'placeholder' => '/srv/htdocs/besv-uploads' ) );
 
 		// Section: Signed URLs.
 		add_settings_section(
@@ -197,8 +198,9 @@ class R2_Settings {
 		$sanitized['access_key']    = sanitize_text_field( $input['access_key'] ?? '' );
 		$sanitized['bucket']        = sanitize_text_field( $input['bucket'] ?? '' );
 		$sanitized['custom_domain'] = sanitize_text_field( $input['custom_domain'] ?? '' );
-		$sanitized['path_prefix']   = sanitize_text_field( $input['path_prefix'] ?? 'wp-content/uploads/' );
-		$sanitized['offload_media'] = ! empty( $input['offload_media'] );
+		$sanitized['path_prefix']        = sanitize_text_field( $input['path_prefix'] ?? 'wp-content/uploads/' );
+		$sanitized['local_uploads_path'] = sanitize_text_field( $input['local_uploads_path'] ?? '' );
+		$sanitized['offload_media']      = ! empty( $input['offload_media'] );
 		$sanitized['remove_local']  = ! empty( $input['remove_local'] );
 		$sanitized['signed_urls']   = ! empty( $input['signed_urls'] );
 		$sanitized['signed_expiry'] = absint( $input['signed_expiry'] ?? 3600 );

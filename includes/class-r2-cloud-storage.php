@@ -143,8 +143,10 @@ final class R2_Cloud_Storage {
 					'activate'      => __( 'Activate License', 'r2-cloud-storage' ),
 					'licenseActive' => __( 'Active', 'r2-cloud-storage' ),
 					'licenseInactive' => __( 'Inactive', 'r2-cloud-storage' ),
-					'startSync'     => __( 'Start Sync', 'r2-cloud-storage' ),
-					'errorUnknown'  => __( 'Unknown error', 'r2-cloud-storage' ),
+					'startSync'          => __( 'Start Sync', 'r2-cloud-storage' ),
+					'folderSyncStarting' => __( 'Scanning uploads folder and starting sync...', 'r2-cloud-storage' ),
+					'failedReset'        => __( 'Failed status reset successfully.', 'r2-cloud-storage' ),
+					'errorUnknown'       => __( 'Unknown error', 'r2-cloud-storage' ),
 				),
 			)
 		);

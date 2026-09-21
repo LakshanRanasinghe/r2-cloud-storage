@@ -11,6 +11,7 @@
     var R2CS = {
         syncing: false,
         paused: false,
+        syncType: null,
 
         init: function () {
             this.bindEvents();
@@ -20,6 +21,8 @@
         bindEvents: function () {
             $('#r2cs-test-connection').on('click', this.testConnection.bind(this));
             $('#r2cs-start-sync').on('click', this.startSync.bind(this));
+            $('#r2cs-start-folder-sync').on('click', this.startFolderSync.bind(this));
+            $('#r2cs-reset-failed-btn').on('click', this.resetFailed.bind(this));
             $('#r2cs-stop-sync').on('click', this.stopSync.bind(this));
         },
 
@@ -37,6 +40,7 @@
                         $('#r2cs-stat-total').text(res.data.media.total);
                         $('#r2cs-stat-offloaded').text(res.data.media.offloaded);
                         $('#r2cs-stat-pending').text(res.data.media.pending);
+                        $('#r2cs-stat-failed').text(res.data.media.failed || 0);
                         $('#r2cs-stat-addons').text(res.data.addons || 0);
                     }
                 }
@@ -77,23 +81,113 @@
 
         /* ── Sync ──────────────────────────────────────── */
 
+        resetFailed: function (e) {
+            if (e) e.preventDefault();
+            var self = this;
+            var $btn = $('#r2cs-reset-failed-btn');
+            $btn.prop('disabled', true);
+
+            $.ajax({
+                url: r2csAdmin.restUrl + 'sync/reset-failed',
+                method: 'POST',
+                beforeSend: function (xhr) {
+                    xhr.setRequestHeader('X-WP-Nonce', r2csAdmin.restNonce);
+                },
+                success: function (res) {
+                    $('.r2cs-sync-log').show();
+                    self.addLog(res.message || r2csAdmin.i18n.failedReset, 'success');
+                    self.loadStats();
+                },
+                error: function (xhr) {
+                    self.addLog(r2csAdmin.i18n.error, 'error');
+                },
+                complete: function () {
+                    $btn.prop('disabled', false);
+                }
+            });
+        },
+
         startSync: function (e) {
             e.preventDefault();
 
             if (this.syncing) return;
             this.syncing = true;
             this.paused = false;
+            this.syncType = 'media';
+
+            var retryFailed = $('#r2cs-retry-failed-checkbox').is(':checked');
 
             var $startBtn = $('#r2cs-start-sync');
+            var $folderBtn = $('#r2cs-start-folder-sync');
             var $stopBtn = $('#r2cs-stop-sync');
 
             $startBtn.hide();
+            $folderBtn.hide();
             $stopBtn.show();
             $('.r2cs-progress-container').show();
             $('#r2cs-sync-log').show();
 
             this.addLog(r2csAdmin.i18n.syncStarting);
-            this.runBatch();
+
+            var self = this;
+            $.ajax({
+                url: r2csAdmin.restUrl + 'sync/start',
+                method: 'POST',
+                data: JSON.stringify({ reset_failed: retryFailed }),
+                contentType: 'application/json',
+                beforeSend: function (xhr) {
+                    xhr.setRequestHeader('X-WP-Nonce', r2csAdmin.restNonce);
+                },
+                success: function () {
+                    self.runBatch();
+                },
+                error: function (xhr) {
+                    var msg = xhr.responseJSON && xhr.responseJSON.message ? xhr.responseJSON.message : r2csAdmin.i18n.error;
+                    self.addLog(msg, 'error');
+                    self.finishSync();
+                }
+            });
+        },
+
+        startFolderSync: function (e) {
+            e.preventDefault();
+
+            if (this.syncing) return;
+            this.syncing = true;
+            this.paused = false;
+            this.syncType = 'folder';
+
+            var $startBtn = $('#r2cs-start-sync');
+            var $folderBtn = $('#r2cs-start-folder-sync');
+            var $stopBtn = $('#r2cs-stop-sync');
+
+            $startBtn.hide();
+            $folderBtn.hide();
+            $stopBtn.show();
+            $('.r2cs-progress-container').show();
+            $('#r2cs-sync-log').show();
+
+            this.addLog(r2csAdmin.i18n.folderSyncStarting || 'Scanning uploads folder and starting sync...');
+
+            var self = this;
+            $.ajax({
+                url: r2csAdmin.restUrl + 'sync/folder/start',
+                method: 'POST',
+                beforeSend: function (xhr) {
+                    xhr.setRequestHeader('X-WP-Nonce', r2csAdmin.restNonce);
+                },
+                success: function (res) {
+                    if (res.message) {
+                        self.addLog(res.message, 'info');
+                    }
+                    self.runFolderBatch();
+                },
+                error: function (xhr) {
+                    var msg = xhr.responseJSON && xhr.responseJSON.message ? xhr.responseJSON.message : r2csAdmin.i18n.error;
+                    self.addLog(msg, 'error');
+                    self.finishSync();
+                }
+            });
         },
 
         stopSync: function (e) {
@@ -102,6 +196,7 @@
             this.syncing = false;
 
             $('#r2cs-start-sync').show().text(r2csAdmin.i18n.syncResumed);
+            $('#r2cs-start-folder-sync').show();
             $('#r2cs-stop-sync').hide();
             $('#r2cs-sync-status').text(r2csAdmin.i18n.paused);
             this.addLog(r2csAdmin.i18n.syncPaused, 'warning');
@@ -110,12 +205,14 @@
         runBatch: function () {
             var self = this;
 
-            if (this.paused || !this.syncing) return;
+            if (this.paused || !this.syncing || this.syncType !== 'media') return;
+
+            var retryFailed = $('#r2cs-retry-failed-checkbox').is(':checked');
 
             $.ajax({
                 url: r2csAdmin.restUrl + 'sync/batch',
                 method: 'POST',
-                data: JSON.stringify({ batch_size: 10 }),
+                data: JSON.stringify({ batch_size: 10, retry_failed: retryFailed }),
                 contentType: 'application/json',
                 beforeSend: function (xhr) {
                     xhr.setRequestHeader('X-WP-Nonce', r2csAdmin.restNonce);
@@ -164,6 +261,60 @@
             });
         },
 
+        runFolderBatch: function () {
+            var self = this;
+
+            if (this.paused || !this.syncing || this.syncType !== 'folder') return;
+
+            $.ajax({
+                url: r2csAdmin.restUrl + 'sync/folder/batch',
+                method: 'POST',
+                data: JSON.stringify({ batch_size: 15 }),
+                contentType: 'application/json',
+                beforeSend: function (xhr) {
+                    xhr.setRequestHeader('X-WP-Nonce', r2csAdmin.restNonce);
+                },
+                success: function (res) {
+                    if (!res.success) {
+                        self.addLog(r2csAdmin.i18n.error + ': ' + (res.message || r2csAdmin.i18n.errorUnknown), 'error');
+                        self.finishSync();
+                        return;
+                    }
+
+                    var data = res.data;
+                    self.addLog(
+                        r2csAdmin.i18n.batchSuccess.replace('%1$d', data.success).replace('%2$d', data.processed),
+                        data.errors.length > 0 ? 'error' : 'success'
+                    );
+
+                    if (data.errors && data.errors.length > 0) {
+                        data.errors.forEach(function (err) {
+                            self.addLog('  ' + (err.file ? err.file + ': ' : '') + err.message, 'error');
+                        });
+                    }
+
+                    self.updateFolderProgress(data);
+
+                    if (data.remaining > 0 && self.syncing && !self.paused) {
+                        setTimeout(function () {
+                            self.runFolderBatch();
+                        }, 400);
+                    } else if (data.remaining === 0) {
+                        self.addLog(r2csAdmin.i18n.syncComplete, 'success');
+                        self.finishSync();
+                    }
+                },
+                error: function (xhr) {
+                    var msg = r2csAdmin.i18n.networkError;
+                    if (xhr.responseJSON && xhr.responseJSON.message) {
+                        msg = xhr.responseJSON.message;
+                    }
+                    self.addLog(r2csAdmin.i18n.error + ': ' + msg, 'error');
+                    self.finishSync();
+                }
+            });
+        },
+
         updateProgress: function (remaining) {
             // Get updated progress
             $.ajax({
@@ -183,17 +334,34 @@
                         // Update dashboard stats too
                         $('#r2cs-stat-offloaded').text(p.offloaded);
                         $('#r2cs-stat-pending').text(p.pending);
+                        if (typeof p.failed !== 'undefined') {
+                            $('#r2cs-stat-failed').text(p.failed);
+                        }
                     }
                 }
             });
         },
 
+        updateFolderProgress: function (batchData) {
+            var total = batchData.total || 0;
+            var remaining = batchData.remaining || 0;
+            var synced = Math.max(0, total - remaining);
+            var percentage = total > 0 ? Math.round((synced / total) * 100) : 100;
+
+            $('#r2cs-progress-bar').css('width', percentage + '%');
+            $('#r2cs-progress-text').text(percentage + '%');
+            $('#r2cs-sync-status').text(r2csAdmin.i18n.syncing);
+            $('#r2cs-sync-count').text(synced + ' / ' + total);
+        },
+
         finishSync: function () {
             this.syncing = false;
             this.paused = false;
+            this.syncType = null;
             $('#r2cs-start-sync').show().html(
-                '<span class="dashicons dashicons-cloud-upload"></span> ' + r2csAdmin.i18n.startSync
+                '<span class="dashicons dashicons-cloud-upload"></span> ' + (r2csAdmin.i18n.startSync || 'Start Media Library Sync')
             );
+            $('#r2cs-start-folder-sync').show();
             $('#r2cs-stop-sync').hide();
             $('#r2cs-sync-status').text(r2csAdmin.i18n.completed);
             this.loadStats();

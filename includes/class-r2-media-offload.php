@@ -266,12 +266,24 @@ class R2_Media_Offload {
 		}
 
 		if ( empty( $file ) || ! file_exists( $file ) ) {
-			$file = $this->get_local_file_path( $attachment_id );
+			$file_info = $this->get_local_file_path( $attachment_id );
+			$file      = is_array( $file_info ) && ! empty( $file_info['path'] ) ? $file_info['path'] : '';
 		}
 
 		if ( $file && file_exists( $file ) ) {
-			$file_dir = dirname( $file );
+			$file_dir  = dirname( $file );
+			$file_name = pathinfo( $file, PATHINFO_FILENAME );
+
 			wp_delete_file( $file );
+
+			// Remove companion WebP files for main file if present.
+			$main_webp = $file_dir . '/' . $file_name . '.webp';
+			if ( file_exists( $main_webp ) && $main_webp !== $file ) {
+				wp_delete_file( $main_webp );
+			}
+			if ( file_exists( $file . '.webp' ) ) {
+				wp_delete_file( $file . '.webp' );
+			}
 
 			// Remove thumbnails located in the same directory as the main file.
 			if ( ! empty( $metadata['sizes'] ) && is_array( $metadata['sizes'] ) ) {
@@ -279,9 +291,19 @@ class R2_Media_Offload {
 					if ( empty( $size_data['file'] ) ) {
 						continue;
 					}
-					$thumb = trailingslashit( $file_dir ) . $size_data['file'];
+					$thumb      = trailingslashit( $file_dir ) . $size_data['file'];
+					$thumb_name = pathinfo( $size_data['file'], PATHINFO_FILENAME );
+
 					if ( file_exists( $thumb ) ) {
 						wp_delete_file( $thumb );
+					}
+					// Remove companion WebP for thumbnails.
+					$thumb_webp = $file_dir . '/' . $thumb_name . '.webp';
+					if ( file_exists( $thumb_webp ) && $thumb_webp !== $thumb ) {
+						wp_delete_file( $thumb_webp );
+					}
+					if ( file_exists( $thumb . '.webp' ) ) {
+						wp_delete_file( $thumb . '.webp' );
 					}
 				}
 			}
@@ -361,6 +383,9 @@ class R2_Media_Offload {
 
 		// Normalize and clean relative paths.
 		$clean_rel = array();
+		$custom_uploads = defined( 'UPLOADS' ) ? trim( UPLOADS, '/' ) : 'besv-uploads';
+		$u_prefix = ! empty( $custom_uploads ) ? $custom_uploads . '/' : '';
+
 		foreach ( $raw_candidates as $cand ) {
 			if ( empty( $cand ) ) {
 				continue;
@@ -369,6 +394,9 @@ class R2_Media_Offload {
 			$clean_rel[] = ltrim( $cand, '/' );
 			$clean_rel[] = urldecode( $cand );
 			$clean_rel[] = rawurldecode( $cand );
+			$clean_rel[] = str_replace( '+', ' ', $cand );
+			$clean_rel[] = str_replace( '%20', ' ', $cand );
+			$clean_rel[] = urldecode( str_replace( '+', ' ', $cand ) );
 
 			if ( false !== strpos( $cand, 'wp-content/uploads/' ) ) {
 				$clean_rel[] = substr( $cand, strpos( $cand, 'wp-content/uploads/' ) + 19 );
@@ -376,32 +404,69 @@ class R2_Media_Offload {
 			if ( false !== strpos( $cand, 'besv-uploads/' ) ) {
 				$clean_rel[] = substr( $cand, strpos( $cand, 'besv-uploads/' ) + 13 );
 			}
+			if ( ! empty( $u_prefix ) && false !== strpos( $cand, $u_prefix ) ) {
+				$clean_rel[] = substr( $cand, strpos( $cand, $u_prefix ) + strlen( $u_prefix ) );
+			}
 
-			$clean_rel[] = preg_replace( '#^(?:besv-uploads/|wp-content/uploads/)#', '', ltrim( $cand, '/' ) );
+			$clean_rel[] = preg_replace( '#^(?:' . preg_quote( $custom_uploads, '#' ) . '/|besv-uploads/|wp-content/uploads/)#', '', ltrim( $cand, '/' ) );
+			// Also add the bare filename as fallback in case directory structure was flattened.
+			$clean_rel[] = basename( $cand );
+			$clean_rel[] = urldecode( basename( $cand ) );
 		}
 		$clean_rel = array_unique( array_filter( $clean_rel ) );
 
 		// Directories to probe on disk.
 		$dirs_to_probe = array();
-		$dirs_to_probe[] = $basedir;
+
+		// Add detected sync uploads folder (e.g. /srv/htdocs/besv-uploads) as top priority.
+		$sync = r2cs()->get( 'sync' );
+		if ( $sync && method_exists( $sync, 'get_uploads_folder_path' ) ) {
+			$sync_folder = $sync->get_uploads_folder_path();
+			if ( ! empty( $sync_folder ) ) {
+				$dirs_to_probe[] = trailingslashit( $sync_folder );
+			}
+		}
+
+		// Probe custom uploads folder (e.g. besv-uploads) at root level.
+		if ( ! empty( $custom_uploads ) ) {
+			if ( defined( 'WP_CONTENT_DIR' ) ) {
+				$dirs_to_probe[] = trailingslashit( dirname( WP_CONTENT_DIR ) ) . $custom_uploads . '/';
+			}
+			if ( defined( 'ABSPATH' ) ) {
+				$dirs_to_probe[] = trailingslashit( ABSPATH ) . $custom_uploads . '/';
+				$dirs_to_probe[] = trailingslashit( dirname( ABSPATH ) ) . $custom_uploads . '/';
+			}
+			if ( ! empty( $_SERVER['DOCUMENT_ROOT'] ) ) {
+				$dirs_to_probe[] = trailingslashit( $_SERVER['DOCUMENT_ROOT'] ) . $custom_uploads . '/';
+				$dirs_to_probe[] = trailingslashit( dirname( $_SERVER['DOCUMENT_ROOT'] ) ) . $custom_uploads . '/';
+			}
+		}
 
 		if ( defined( 'WP_CONTENT_DIR' ) ) {
-			$dirs_to_probe[] = trailingslashit( WP_CONTENT_DIR ) . 'uploads/';
 			$dirs_to_probe[] = trailingslashit( dirname( WP_CONTENT_DIR ) ) . 'besv-uploads/';
-			$dirs_to_probe[] = trailingslashit( WP_CONTENT_DIR );
 		}
 
 		if ( defined( 'ABSPATH' ) ) {
 			$dirs_to_probe[] = trailingslashit( ABSPATH ) . 'besv-uploads/';
-			$dirs_to_probe[] = trailingslashit( ABSPATH ) . 'wp-content/uploads/';
-			$dirs_to_probe[] = trailingslashit( ABSPATH );
 			$dirs_to_probe[] = trailingslashit( dirname( ABSPATH ) ) . 'besv-uploads/';
 		}
 
 		if ( ! empty( $_SERVER['DOCUMENT_ROOT'] ) ) {
 			$dirs_to_probe[] = trailingslashit( $_SERVER['DOCUMENT_ROOT'] ) . 'besv-uploads/';
-			$dirs_to_probe[] = trailingslashit( $_SERVER['DOCUMENT_ROOT'] ) . 'wp-content/uploads/';
-			$dirs_to_probe[] = trailingslashit( $_SERVER['DOCUMENT_ROOT'] );
+		}
+
+		$dirs_to_probe[] = $basedir;
+
+		// Fallback: inside wp-content.
+		if ( defined( 'WP_CONTENT_DIR' ) ) {
+			$dirs_to_probe[] = trailingslashit( WP_CONTENT_DIR ) . 'uploads/';
+			$dirs_to_probe[] = trailingslashit( WP_CONTENT_DIR ) . 'besv-uploads/';
+			$dirs_to_probe[] = trailingslashit( WP_CONTENT_DIR );
+		}
+
+		if ( defined( 'ABSPATH' ) ) {
+			$dirs_to_probe[] = trailingslashit( ABSPATH ) . 'wp-content/uploads/';
+			$dirs_to_probe[] = trailingslashit( ABSPATH );
 		}
 
 		$dirs_to_probe = array_unique( array_filter( $dirs_to_probe ) );
@@ -412,6 +477,20 @@ class R2_Media_Offload {
 				$candidate = trailingslashit( $dir ) . ltrim( $rel, '/' );
 				if ( file_exists( $candidate ) ) {
 					return array( 'path' => $candidate, 'is_temp' => false );
+				}
+
+				// Case-insensitive extension probe (e.g. .pdf vs .PDF, .webp vs .WEBP).
+				$dot_pos = strrpos( $candidate, '.' );
+				if ( false !== $dot_pos ) {
+					$base_part = substr( $candidate, 0, $dot_pos );
+					$ext_part  = substr( $candidate, $dot_pos + 1 );
+					$alt_exts  = array( strtolower( $ext_part ), strtoupper( $ext_part ), ucfirst( strtolower( $ext_part ) ) );
+					foreach ( $alt_exts as $alt ) {
+						$alt_candidate = $base_part . '.' . $alt;
+						if ( $alt_candidate !== $candidate && file_exists( $alt_candidate ) ) {
+							return array( 'path' => $alt_candidate, 'is_temp' => false );
+						}
+					}
 				}
 			}
 		}
@@ -456,12 +535,57 @@ class R2_Media_Offload {
 	public function get_relative_path( $file, $attachment_id, $basedir ) {
 		$basedir = trailingslashit( $basedir );
 
+		// 0. If file is inside detected or configured uploads directory (e.g. /srv/htdocs/besv-uploads):
+		$sync = r2cs()->get( 'sync' );
+		if ( $sync && method_exists( $sync, 'get_uploads_folder_path' ) ) {
+			$sync_folder = $sync->get_uploads_folder_path();
+			if ( ! empty( $sync_folder ) ) {
+				$sync_dir = trailingslashit( $sync_folder );
+				if ( 0 === strpos( $file, $sync_dir ) ) {
+					return ltrim( substr( $file, strlen( $sync_dir ) ), '/' );
+				}
+			}
+		}
+
 		// 1. If file is inside current upload basedir:
 		if ( 0 === strpos( $file, $basedir ) ) {
 			return ltrim( substr( $file, strlen( $basedir ) ), '/' );
 		}
 
-		// 2. If file is inside legacy WP_CONTENT_DIR/uploads:
+		// 2. If file is inside custom UPLOADS or besv-uploads:
+		$custom_uploads = defined( 'UPLOADS' ) ? trim( UPLOADS, '/' ) : 'besv-uploads';
+		if ( ! empty( $custom_uploads ) ) {
+			if ( defined( 'WP_CONTENT_DIR' ) ) {
+				$c_dir = trailingslashit( dirname( WP_CONTENT_DIR ) ) . $custom_uploads . '/';
+				if ( 0 === strpos( $file, $c_dir ) ) {
+					return ltrim( substr( $file, strlen( $c_dir ) ), '/' );
+				}
+			}
+			if ( defined( 'ABSPATH' ) ) {
+				$c_dir = trailingslashit( ABSPATH ) . $custom_uploads . '/';
+				if ( 0 === strpos( $file, $c_dir ) ) {
+					return ltrim( substr( $file, strlen( $c_dir ) ), '/' );
+				}
+				$c_dir = trailingslashit( dirname( ABSPATH ) ) . $custom_uploads . '/';
+				if ( 0 === strpos( $file, $c_dir ) ) {
+					return ltrim( substr( $file, strlen( $c_dir ) ), '/' );
+				}
+			}
+			if ( ! empty( $_SERVER['DOCUMENT_ROOT'] ) ) {
+				$c_dir = trailingslashit( $_SERVER['DOCUMENT_ROOT'] ) . $custom_uploads . '/';
+				if ( 0 === strpos( $file, $c_dir ) ) {
+					return ltrim( substr( $file, strlen( $c_dir ) ), '/' );
+				}
+			}
+			if ( defined( 'WP_CONTENT_DIR' ) ) {
+				$c_dir = trailingslashit( WP_CONTENT_DIR ) . $custom_uploads . '/';
+				if ( 0 === strpos( $file, $c_dir ) ) {
+					return ltrim( substr( $file, strlen( $c_dir ) ), '/' );
+				}
+			}
+		}
+
+		// 3. If file is inside legacy WP_CONTENT_DIR/uploads:
 		if ( defined( 'WP_CONTENT_DIR' ) ) {
 			$legacy_dir = trailingslashit( WP_CONTENT_DIR ) . 'uploads/';
 			if ( 0 === strpos( $file, $legacy_dir ) ) {
@@ -469,7 +593,7 @@ class R2_Media_Offload {
 			}
 		}
 
-		// 3. Fallback: normalize from _wp_attached_file postmeta:
+		// 4. Fallback: normalize from _wp_attached_file postmeta:
 		$attached = get_post_meta( $attachment_id, '_wp_attached_file', true );
 		if ( ! empty( $attached ) ) {
 			$cleaned = ltrim( $attached, '/' );
@@ -477,31 +601,33 @@ class R2_Media_Offload {
 				$cleaned = substr( $attached, strpos( $attached, 'wp-content/uploads/' ) + 19 );
 			} elseif ( false !== strpos( $attached, 'besv-uploads/' ) ) {
 				$cleaned = substr( $attached, strpos( $attached, 'besv-uploads/' ) + 13 );
+			} elseif ( ! empty( $custom_uploads ) && false !== strpos( $attached, $custom_uploads . '/' ) ) {
+				$cleaned = substr( $attached, strpos( $attached, $custom_uploads . '/' ) + strlen( $custom_uploads ) + 1 );
 			} else {
-				$cleaned = preg_replace( '#^(?:besv-uploads/|wp-content/uploads/)#', '', $cleaned );
+				$cleaned = preg_replace( '#^(?:' . preg_quote( $custom_uploads, '#' ) . '/|besv-uploads/|wp-content/uploads/)#', '', $cleaned );
 			}
 			if ( ! empty( $cleaned ) && false === strpos( $cleaned, '://' ) ) {
 				return $cleaned;
 			}
 		}
 
-		// 4. Fallback: normalize from metadata['file']:
+		// 5. Fallback: normalize from metadata['file']:
 		$meta = wp_get_attachment_metadata( $attachment_id );
 		if ( is_array( $meta ) && ! empty( $meta['file'] ) ) {
 			return ltrim( $meta['file'], '/' );
 		}
 
-		// 5. Fallback: normalize from URL path:
+		// 6. Fallback: normalize from URL path:
 		$url = wp_get_attachment_url( $attachment_id );
 		if ( ! empty( $url ) ) {
 			$path = wp_parse_url( $url, PHP_URL_PATH );
 			if ( $path ) {
-				$cleaned = preg_replace( '#^/(?:besv-uploads/|wp-content/uploads/)#', '', $path );
+				$cleaned = preg_replace( '#^/(?:' . preg_quote( $custom_uploads, '#' ) . '/|besv-uploads/|wp-content/uploads/)#', '', $path );
 				return ltrim( $cleaned, '/' );
 			}
 		}
 
-		// 6. Default to basename.
+		// 7. Default to basename.
 		return basename( $file );
 	}
 
@@ -551,16 +677,27 @@ class R2_Media_Offload {
 		update_post_meta( $attachment_id, self::META_KEY, true );
 		update_post_meta( $attachment_id, self::REMOTE_KEY_META, $remote_key );
 
+		$file_dir   = dirname( $file );
+		$file_name  = pathinfo( $file, PATHINFO_FILENAME );
+		$remote_dir = dirname( $remote_key );
+		$remote_dir = ( '.' === $remote_dir || empty( $remote_dir ) ) ? '' : trailingslashit( $remote_dir );
+
+		// Check and upload companion WebP files for main file (e.g. image.webp or image.jpg.webp).
+		$main_webp_alt1 = $file_dir . '/' . $file_name . '.webp';
+		$main_webp_alt2 = $file . '.webp';
+		if ( file_exists( $main_webp_alt1 ) && $main_webp_alt1 !== $file ) {
+			$this->client->upload_file( $main_webp_alt1, $remote_dir . $file_name . '.webp', 'image/webp' );
+		}
+		if ( file_exists( $main_webp_alt2 ) && $main_webp_alt2 !== $file ) {
+			$this->client->upload_file( $main_webp_alt2, $remote_key . '.webp', 'image/webp' );
+		}
+
 		// 2. Upload thumbnails if metadata has sizes.
 		if ( null === $metadata ) {
 			$metadata = wp_get_attachment_metadata( $attachment_id );
 		}
 
 		if ( ! empty( $metadata['sizes'] ) && is_array( $metadata['sizes'] ) ) {
-			$file_dir   = dirname( $file );
-			$remote_dir = dirname( $remote_key );
-			$remote_dir = ( '.' === $remote_dir || empty( $remote_dir ) ) ? '' : trailingslashit( $remote_dir );
-
 			foreach ( $metadata['sizes'] as $size => $size_data ) {
 				if ( empty( $size_data['file'] ) ) {
 					continue;
@@ -570,6 +707,17 @@ class R2_Media_Offload {
 
 				if ( file_exists( $thumb_path ) ) {
 					$this->client->upload_file( $thumb_path, $thumb_remote );
+
+					// Companion WebP for thumbnail (e.g. image-300x200.webp or image-300x200.jpg.webp).
+					$thumb_name      = pathinfo( $size_data['file'], PATHINFO_FILENAME );
+					$thumb_webp_alt1 = $file_dir . '/' . $thumb_name . '.webp';
+					$thumb_webp_alt2 = $thumb_path . '.webp';
+					if ( file_exists( $thumb_webp_alt1 ) && $thumb_webp_alt1 !== $thumb_path ) {
+						$this->client->upload_file( $thumb_webp_alt1, $remote_dir . $thumb_name . '.webp', 'image/webp' );
+					}
+					if ( file_exists( $thumb_webp_alt2 ) && $thumb_webp_alt2 !== $thumb_path ) {
+						$this->client->upload_file( $thumb_webp_alt2, $thumb_remote . '.webp', 'image/webp' );
+					}
 				} elseif ( $is_temp ) {
 					// If main file was fetched via URL, fetch thumbnail via URL as well:
 					$thumb_url = wp_get_attachment_image_url( $attachment_id, $size );
@@ -584,6 +732,16 @@ class R2_Media_Offload {
 							}
 						}
 					}
+				}
+			}
+		} else {
+			// If metadata has no sizes (common for direct WebP or PDF), probe disk for matching generated thumbnails.
+			$escaped_base = preg_replace( '/([\[\]*?])/', '[$1]', $file_name );
+			$extra_thumbs = glob( $file_dir . '/' . $escaped_base . '-[0-9]*x[0-9]*.*' );
+			if ( ! empty( $extra_thumbs ) && is_array( $extra_thumbs ) ) {
+				foreach ( $extra_thumbs as $extra_thumb ) {
+					$extra_base = basename( $extra_thumb );
+					$this->client->upload_file( $extra_thumb, $remote_dir . $extra_base );
 				}
 			}
 		}
@@ -602,7 +760,7 @@ class R2_Media_Offload {
 	/**
 	 * Get offload statistics.
 	 *
-	 * @return array { total: int, offloaded: int, pending: int }
+	 * @return array { total: int, offloaded: int, failed: int, pending: int }
 	 */
 	public function get_stats() {
 		global $wpdb;
@@ -619,9 +777,16 @@ class R2_Media_Offload {
 			self::META_KEY
 		) );
 
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Failed count.
+		$failed = (int) $wpdb->get_var( $wpdb->prepare(
+			"SELECT COUNT(*) FROM {$wpdb->postmeta} WHERE meta_key = %s AND meta_value = '-1'",
+			self::META_KEY
+		) );
+
 		return array(
 			'total'     => $total,
 			'offloaded' => $offloaded,
+			'failed'    => $failed,
 			'pending'   => max( 0, $total - $offloaded ),
 		);
 	}
