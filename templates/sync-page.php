@@ -99,7 +99,7 @@ $folder_name     = $uploads_folder ? basename( $uploads_folder ) : 'besv-uploads
 				<!-- Options -->
 				<div style="background: #fdfdfd; border: 1px solid #e2e4e7; border-radius: 6px; padding: 12px 16px; margin: 16px 0;">
 					<label style="display: block; margin-bottom: 8px;">
-						<input type="checkbox" id="r2cs-retry-failed-checkbox" checked="checked">
+						<input type="checkbox" id="r2cs-retry-failed-checkbox" checked="checked" autocomplete="off">
 						<strong><?php esc_html_e( 'Retry previously failed attachments (reset error status)', 'r2-cloud-storage' ); ?></strong>
 					</label>
 					<label style="display: block;">
@@ -152,9 +152,14 @@ $folder_name     = $uploads_folder ? basename( $uploads_folder ) : 'besv-uploads
 
 					<button type="button" id="r2cs-stop-sync" class="button button-secondary" style="display:none; height: 46px; line-height: 44px;">
 						<span class="dashicons dashicons-controls-pause"></span>
-						<?php esc_html_e( 'Pause', 'r2-cloud-storage' ); ?>
+						<?php esc_html_e( 'Pause Sync', 'r2-cloud-storage' ); ?>
 					</button>
 				</div>
+
+				<p style="margin-top: 14px; color: #50575e; font-size: 13px; line-height: 1.5;">
+					<strong><?php esc_html_e( 'Recommended:', 'r2-cloud-storage' ); ?></strong>
+					<?php esc_html_e( 'Use "Start Media Library Sync" to offload all WordPress attachments (images, companion .webp files, and PDFs). Use "Sync Folder Directly" only to scan for extra unindexed files sitting on the server.', 'r2-cloud-storage' ); ?>
+				</p>
 			</div>
 		</div>
 	<?php endif; ?>

@@ -95,18 +95,23 @@ final class R2_Cloud_Storage {
 			return;
 		}
 
+		$css_path = R2CS_PLUGIN_DIR . 'assets/css/admin.css';
+		$js_path  = R2CS_PLUGIN_DIR . 'assets/js/admin.js';
+		$css_ver  = file_exists( $css_path ) ? (string) filemtime( $css_path ) : R2CS_VERSION;
+		$js_ver   = file_exists( $js_path ) ? (string) filemtime( $js_path ) : R2CS_VERSION;
+
 		wp_enqueue_style(
 			'r2cs-admin',
 			R2CS_PLUGIN_URL . 'assets/css/admin.css',
 			array(),
-			R2CS_VERSION
+			$css_ver
 		);
 
 		wp_enqueue_script(
 			'r2cs-admin',
 			R2CS_PLUGIN_URL . 'assets/js/admin.js',
 			array( 'jquery', 'wp-util' ),
-			R2CS_VERSION,
+			$js_ver,
 			true
 		);
 

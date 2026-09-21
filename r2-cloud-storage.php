@@ -3,7 +3,7 @@
  * Plugin Name: R2 Cloud Storage
  * Plugin URI: https://r2cloudstorage.com
  * Description: Offload your WordPress media to Cloudflare R2 with zero egress fees. Modular add-on system for WooCommerce, LearnDash, EDD and more.
- * Version: 1.0.0
+ * Version: 1.0.2
  * Requires at least: 6.0
  * Requires PHP: 7.4
  * Author: R2 Cloud Storage
@@ -19,7 +19,7 @@
 defined( 'ABSPATH' ) || exit;
 
 // Plugin constants.
-define( 'R2CS_VERSION', '1.0.0' );
+define( 'R2CS_VERSION', '1.0.2' );
 define( 'R2CS_PLUGIN_FILE', __FILE__ );
 define( 'R2CS_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'R2CS_PLUGIN_URL', plugin_dir_url( __FILE__ ) );

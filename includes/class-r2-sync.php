@@ -261,7 +261,7 @@ class R2_Sync {
 	 * @param array $extensions Supported extensions.
 	 * @return array List of relative paths.
 	 */
-	public function scan_uploads_folder( $extensions = array( 'jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'avif', 'pdf' ) ) {
+	public function scan_uploads_folder( $extensions = array( 'jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'avif', 'pdf' ), $limit = 5000 ) {
 		$folder = $this->get_uploads_folder_path();
 		if ( ! $folder || ! is_dir( $folder ) ) {
 			return array();
@@ -269,6 +269,10 @@ class R2_Sync {
 
 		$extensions = array_map( 'strtolower', $extensions );
 		$files      = array();
+
+		if ( function_exists( 'set_time_limit' ) ) {
+			@set_time_limit( 120 );
+		}
 
 		try {
 			$dir_iterator = new \RecursiveDirectoryIterator( $folder, \FilesystemIterator::SKIP_DOTS );
@@ -282,6 +286,9 @@ class R2_Sync {
 					if ( in_array( $ext, $extensions, true ) || preg_match( '/\.(jpe?g|png|gif)\.webp$/i', $pathname ) ) {
 						$rel     = substr( $pathname, $folder_len );
 						$files[] = ltrim( $rel, '/' );
+						if ( $limit > 0 && count( $files ) >= $limit ) {
+							break;
+						}
 					}
 				}
 			}

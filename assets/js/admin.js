@@ -19,11 +19,11 @@
         },
 
         bindEvents: function () {
-            $('#r2cs-test-connection').on('click', this.testConnection.bind(this));
-            $('#r2cs-start-sync').on('click', this.startSync.bind(this));
-            $('#r2cs-start-folder-sync').on('click', this.startFolderSync.bind(this));
-            $('#r2cs-reset-failed-btn').on('click', this.resetFailed.bind(this));
-            $('#r2cs-stop-sync').on('click', this.stopSync.bind(this));
+            $(document).on('click', '#r2cs-test-connection', this.testConnection.bind(this));
+            $(document).on('click', '#r2cs-start-sync', this.startSync.bind(this));
+            $(document).on('click', '#r2cs-start-folder-sync', this.startFolderSync.bind(this));
+            $(document).on('click', '#r2cs-reset-failed-btn', this.resetFailed.bind(this));
+            $(document).on('click', '#r2cs-stop-sync', this.stopSync.bind(this));
         },
 
         /* ── Stats ─────────────────────────────────────── */
@@ -108,7 +108,7 @@
         },
 
         startSync: function (e) {
-            e.preventDefault();
+            if (e) e.preventDefault();
 
             if (this.syncing) return;
             this.syncing = true;
@@ -116,6 +116,11 @@
             this.syncType = 'media';
 
             var retryFailed = $('#r2cs-retry-failed-checkbox').is(':checked');
+            var failedCount = parseInt($('#r2cs-stat-failed').text(), 10) || 0;
+            if (!retryFailed && failedCount > 0) {
+                retryFailed = true;
+                $('#r2cs-retry-failed-checkbox').prop('checked', true);
+            }
 
             var $startBtn = $('#r2cs-start-sync');
             var $folderBtn = $('#r2cs-start-folder-sync');
@@ -126,6 +131,7 @@
             $stopBtn.show();
             $('.r2cs-progress-container').show();
             $('#r2cs-sync-log').show();
+            $('#r2cs-sync-status').text(r2csAdmin.i18n.syncStarting || 'Starting sync...');
 
             this.addLog(r2csAdmin.i18n.syncStarting);
 
@@ -150,7 +156,7 @@
         },
 
         startFolderSync: function (e) {
-            e.preventDefault();
+            if (e) e.preventDefault();
 
             if (this.syncing) return;
             this.syncing = true;
@@ -166,6 +172,7 @@
             $stopBtn.show();
             $('.r2cs-progress-container').show();
             $('#r2cs-sync-log').show();
+            $('#r2cs-sync-status').text('Scanning uploads directory...');
 
             this.addLog(r2csAdmin.i18n.folderSyncStarting || 'Scanning uploads folder and starting sync...');
 
