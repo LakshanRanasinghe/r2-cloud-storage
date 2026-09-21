@@ -170,6 +170,7 @@ class R2_Settings {
 
 		add_settings_field( 'offload_media', __( 'Auto Offload', 'r2-cloud-storage' ), array( $this, 'render_checkbox_field' ), 'r2-cloud-storage', 'r2cs_media', array( 'key' => 'offload_media', 'label' => __( 'Automatically upload new media to R2.', 'r2-cloud-storage' ) ) );
 		add_settings_field( 'remove_local', __( 'Remove Local Copy', 'r2-cloud-storage' ), array( $this, 'render_checkbox_field' ), 'r2-cloud-storage', 'r2cs_media', array( 'key' => 'remove_local', 'label' => __( 'Remove local file after uploading to R2. Saves disk space.', 'r2-cloud-storage' ) ) );
+		add_settings_field( 'rewrite_html', __( 'Rewrite Frontend URLs', 'r2-cloud-storage' ), array( $this, 'render_checkbox_field' ), 'r2-cloud-storage', 'r2cs_media', array( 'key' => 'rewrite_html', 'default' => true, 'label' => __( 'Automatically rewrite hardcoded upload & theme image URLs in frontend HTML to R2 / CDN (supports /besv-uploads/ and /wp-content/uploads/).', 'r2-cloud-storage' ) ) );
 		add_settings_field( 'path_prefix', __( 'Path Prefix', 'r2-cloud-storage' ), array( $this, 'render_text_field' ), 'r2-cloud-storage', 'r2cs_media', array( 'key' => 'path_prefix', 'description' => __( 'Prefix for object keys in R2.', 'r2-cloud-storage' ), 'placeholder' => 'wp-content/uploads/' ) );
 		add_settings_field( 'local_uploads_path', __( 'Local Uploads Directory Path', 'r2-cloud-storage' ), array( $this, 'render_text_field' ), 'r2-cloud-storage', 'r2cs_media', array( 'key' => 'local_uploads_path', 'description' => __( 'Absolute server path to your local uploads directory (e.g. <code>/srv/htdocs/besv-uploads</code>). Leave empty to auto-detect.', 'r2-cloud-storage' ), 'placeholder' => '/srv/htdocs/besv-uploads' ) );
 
@@ -202,6 +203,7 @@ class R2_Settings {
 		$sanitized['local_uploads_path'] = sanitize_text_field( $input['local_uploads_path'] ?? '' );
 		$sanitized['offload_media']      = ! empty( $input['offload_media'] );
 		$sanitized['remove_local']  = ! empty( $input['remove_local'] );
+		$sanitized['rewrite_html']  = ! empty( $input['rewrite_html'] );
 		$sanitized['signed_urls']   = ! empty( $input['signed_urls'] );
 		$sanitized['signed_expiry'] = absint( $input['signed_expiry'] ?? 3600 );
 
@@ -320,9 +322,10 @@ class R2_Settings {
 	 * @param array $args Field arguments.
 	 */
 	public function render_checkbox_field( $args ) {
-		$key   = $args['key'];
-		$value = $this->get( $key );
-		$label = $args['label'] ?? '';
+		$key     = $args['key'];
+		$default = $args['default'] ?? false;
+		$value   = $this->get( $key, $default );
+		$label   = $args['label'] ?? '';
 
 		printf(
 			'<label><input type="checkbox" id="r2cs_%1$s" name="%2$s[%1$s]" value="1" %3$s /> %4$s</label>',

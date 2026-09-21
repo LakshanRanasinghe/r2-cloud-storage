@@ -59,6 +59,12 @@ class R2_Media_Offload {
 		// Also rewrite srcset URLs for responsive images.
 		add_filter( 'wp_calculate_image_srcset', array( $this, 'rewrite_srcset_urls' ), 10, 5 );
 
+		// Frontend HTML output rewriting: rewrite uploads and theme media to R2 / CDN.
+		if ( $this->settings->get( 'rewrite_html', true ) ) {
+			add_action( 'template_redirect', array( $this, 'start_output_buffer' ), 1 );
+			add_action( 'shutdown', array( $this, 'flush_output_buffer' ), 0 );
+		}
+
 		/**
 		 * Filter to allow add-ons to hook into post-offload actions.
 		 */
@@ -788,6 +794,150 @@ class R2_Media_Offload {
 			'offloaded' => $offloaded,
 			'failed'    => $failed,
 			'pending'   => max( 0, $total - $offloaded ),
+		);
+	}
+
+	// ------------------------------------------------------------------
+	//  Frontend HTML URL Rewriting
+	// ------------------------------------------------------------------
+
+	/**
+	 * Start output buffer on frontend requests to rewrite media URLs.
+	 */
+	public function start_output_buffer() {
+		// Do not buffer in admin, AJAX, feeds, cron, or API requests.
+		if ( is_admin() || wp_doing_ajax() || is_feed() || ( function_exists( 'wp_is_json_request' ) && wp_is_json_request() ) ) {
+			return;
+		}
+
+		if ( defined( 'REST_REQUEST' ) && REST_REQUEST ) {
+			return;
+		}
+
+		if ( defined( 'XMLRPC_REQUEST' ) && XMLRPC_REQUEST ) {
+			return;
+		}
+
+		if ( defined( 'DOING_CRON' ) && DOING_CRON ) {
+			return;
+		}
+
+		if ( ! $this->settings->is_configured() ) {
+			return;
+		}
+
+		ob_start( array( $this, 'rewrite_html_buffer' ) );
+	}
+
+	/**
+	 * Flush output buffer on shutdown if still active.
+	 */
+	public function flush_output_buffer() {
+		if ( ob_get_level() > 0 ) {
+			@ob_end_flush();
+		}
+	}
+
+	/**
+	 * Rewrite uploads and media URLs in rendered frontend HTML buffer.
+	 *
+	 * Catches hardcoded theme template paths (e.g. /besv-uploads/2023/07/image.webp),
+	 * page builders, inline styles, responsive picture/srcset, and standard uploads.
+	 *
+	 * @param string $buffer HTML output buffer.
+	 * @return string Rewritten HTML.
+	 */
+	public function rewrite_html_buffer( $buffer ) {
+		if ( empty( $buffer ) || ! is_string( $buffer ) ) {
+			return $buffer;
+		}
+
+		// Collect upload folder patterns.
+		$folders = array( 'wp-content/uploads', 'besv-uploads' );
+
+		$custom_uploads = defined( 'UPLOADS' ) ? trim( UPLOADS, '/' ) : '';
+		if ( ! empty( $custom_uploads ) ) {
+			$folders[] = $custom_uploads;
+		}
+
+		$sync = function_exists( 'r2cs' ) ? r2cs()->get( 'sync' ) : null;
+		if ( $sync && method_exists( $sync, 'get_uploads_folder_path' ) ) {
+			$sync_folder = $sync->get_uploads_folder_path();
+			if ( ! empty( $sync_folder ) ) {
+				$folders[] = basename( $sync_folder );
+			}
+		}
+
+		$folders = array_unique( array_filter( $folders ) );
+		$folder_patterns = array();
+		foreach ( $folders as $folder ) {
+			$folder_patterns[] = preg_quote( trim( $folder, '/' ), '#' );
+		}
+		$folder_regex = implode( '|', $folder_patterns );
+
+		$custom_domain = $this->settings->get( 'custom_domain' );
+		$use_signed    = $this->settings->get( 'signed_urls' ) || empty( $custom_domain );
+		$expiry        = (int) $this->settings->get( 'signed_expiry', 3600 );
+		$prefix        = trim( (string) $this->settings->get( 'path_prefix', 'wp-content/uploads/' ), '/' );
+
+		$cdn_host = '';
+		if ( ! empty( $custom_domain ) ) {
+			$domain_for_parse = ( 0 === strpos( $custom_domain, 'http' ) ) ? $custom_domain : 'https://' . $custom_domain;
+			$parsed_cdn       = wp_parse_url( $domain_for_parse );
+			$cdn_host         = $parsed_cdn['host'] ?? '';
+		}
+		$r2_host = 'r2.cloudflarestorage.com';
+
+		// Match root-relative or absolute upload URLs with media extensions.
+		// Starts after a delimiter (quote, whitespace, paren, comma, or string start).
+		$pattern = '#(?<=["\'\s\(\>,]|^)(?P<url_prefix>(?:https?:)?(?://|\\\\/\\\\/)[^"\'\s<>\)\?,]+)?(?P<slash>/|\\\/)(?:' . $folder_regex . ')(?P<rel>(?:/|\\\/)[^\s"\'<>\)\?,]+\.(?:jpe?g|png|gif|webp|svg|avif|ico|pdf|mp4|mp3|zip|docx?|xlsx?))(?P<query>\?[^\s"\'<>\)]*)?#i';
+
+		$client = $this->client;
+
+		return preg_replace_callback(
+			$pattern,
+			function( $matches ) use ( $client, $use_signed, $expiry, $prefix, $cdn_host, $r2_host ) {
+				$is_json = false !== strpos( $matches['slash'], '\\' );
+
+				// If domain/prefix is present, verify it is not already our CDN or R2 endpoint.
+				if ( ! empty( $matches['url_prefix'] ) ) {
+					$raw_prefix = $is_json ? stripslashes( $matches['url_prefix'] ) : $matches['url_prefix'];
+					$host       = wp_parse_url( $raw_prefix, PHP_URL_HOST );
+					if ( $host && ( ( $cdn_host && $host === $cdn_host ) || false !== strpos( $host, $r2_host ) || false !== strpos( $host, 'r2.dev' ) ) ) {
+						return $matches[0];
+					}
+					if ( false !== strpos( $raw_prefix, $r2_host ) || false !== strpos( $raw_prefix, 'r2.dev' ) ) {
+						return $matches[0];
+					}
+				}
+
+				// If query string already contains AWS / R2 presigned parameters, do not touch.
+				if ( ! empty( $matches['query'] ) && false !== strpos( $matches['query'], 'X-Amz-' ) ) {
+					return $matches[0];
+				}
+
+				$rel   = $is_json ? stripslashes( $matches['rel'] ) : $matches['rel'];
+				$rel   = ltrim( $rel, '/' );
+				$query = ! empty( $matches['query'] ) ? $matches['query'] : '';
+
+				$remote_key = ! empty( $prefix ) ? $prefix . '/' . $rel : $rel;
+
+				if ( $use_signed ) {
+					$target = $client->get_presigned_url( $remote_key, $expiry );
+					if ( ! empty( $query ) ) {
+						$target .= '&' . ltrim( $query, '?' );
+					}
+				} else {
+					$target = $client->get_object_url( $remote_key ) . $query;
+				}
+
+				if ( $is_json ) {
+					$target = str_replace( '/', '\/', str_replace( '\/', '/', $target ) );
+				}
+
+				return $target;
+			},
+			$buffer
 		);
 	}
 }
