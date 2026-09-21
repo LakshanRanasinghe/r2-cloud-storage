@@ -875,6 +875,18 @@ class R2_Media_Offload {
 		}
 		$folder_regex = implode( '|', $folder_patterns );
 
+		$sync_folder = '';
+		$sync        = function_exists( 'r2cs' ) ? r2cs()->get( 'sync' ) : null;
+		if ( $sync && method_exists( $sync, 'get_uploads_folder_path' ) ) {
+			$sync_folder = $sync->get_uploads_folder_path();
+		}
+		$upload_basedir  = '';
+		if ( function_exists( 'wp_upload_dir' ) ) {
+			$upload_dir_info = wp_upload_dir();
+			$upload_basedir  = ! empty( $upload_dir_info['basedir'] ) ? $upload_dir_info['basedir'] : '';
+		}
+		$remove_local    = (bool) $this->settings->get( 'remove_local' );
+
 		$custom_domain = $this->settings->get( 'custom_domain' );
 		$use_signed    = $this->settings->get( 'signed_urls' ) || empty( $custom_domain );
 		$expiry        = (int) $this->settings->get( 'signed_expiry', 3600 );
@@ -896,7 +908,7 @@ class R2_Media_Offload {
 
 		return preg_replace_callback(
 			$pattern,
-			function( $matches ) use ( $client, $use_signed, $expiry, $prefix, $cdn_host, $r2_host ) {
+			function( $matches ) use ( $client, $use_signed, $expiry, $prefix, $cdn_host, $r2_host, $sync_folder, $upload_basedir, $remove_local ) {
 				$is_json = false !== strpos( $matches['slash'], '\\' );
 
 				// If domain/prefix is present, verify it is not already our CDN or R2 endpoint.
@@ -921,6 +933,22 @@ class R2_Media_Offload {
 				$query = ! empty( $matches['query'] ) ? $matches['query'] : '';
 
 				$remote_key = ! empty( $prefix ) ? $prefix . '/' . $rel : $rel;
+
+				// Self-healing: If the file is still present on the server disk, upload it to R2.
+				$local_file = '';
+				if ( ! empty( $sync_folder ) && file_exists( trailingslashit( $sync_folder ) . $rel ) ) {
+					$local_file = trailingslashit( $sync_folder ) . $rel;
+				} elseif ( ! empty( $upload_basedir ) && file_exists( trailingslashit( $upload_basedir ) . $rel ) ) {
+					$local_file = trailingslashit( $upload_basedir ) . $rel;
+				}
+
+				if ( ! empty( $local_file ) ) {
+					$mime_type = $client->detect_mime_type( $local_file );
+					$upload    = $client->upload_file( $local_file, $remote_key, $mime_type );
+					if ( ! is_wp_error( $upload ) && $remove_local ) {
+						@unlink( $local_file );
+					}
+				}
 
 				if ( $use_signed ) {
 					$target = $client->get_presigned_url( $remote_key, $expiry );
