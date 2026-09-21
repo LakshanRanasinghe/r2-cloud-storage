@@ -1,0 +1,529 @@
+# R2 Cloud Storage - Brazilian Portuguese Translation
+# Copyright (C) 2024 R2 Cloud Storage
+# This file is distributed under the GPL-2.0-or-later.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: R2 Cloud Storage 1.0.0\n"
+"Report-Msgid-Bugs-To: https://r2cloudstorage.com/support\n"
+"POT-Creation-Date: 2024-01-01 00:00+0000\n"
+"PO-Revision-Date: 2024-01-01 00:00+0000\n"
+"Last-Translator: R2 Cloud Storage <support@r2cloudstorage.com>\n"
+"Language-Team: Portuguese (Brazil)\n"
+"Language: pt_BR\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n > 1);\n"
+
+#: r2-cloud-storage.php
+msgid "R2 Cloud Storage requires PHP %s or higher."
+msgstr "R2 Cloud Storage requer PHP %s ou superior."
+
+#: r2-cloud-storage.php
+msgid "R2 Cloud Storage requires WordPress %s or higher."
+msgstr "R2 Cloud Storage requer WordPress %s ou superior."
+
+#: r2-cloud-storage.php
+msgid "R2 Cloud Storage requires the PHP JSON extension."
+msgstr "R2 Cloud Storage requer a extensão PHP JSON."
+
+#: r2-cloud-storage.php
+msgid "R2 Cloud Storage requires hash_hmac support (PHP Hash extension)."
+msgstr "R2 Cloud Storage requer suporte a hash_hmac (extensão PHP Hash)."
+
+#: includes/class-r2-cloud-storage.php
+msgid "Testing connection..."
+msgstr "Testando conexão..."
+
+#: includes/class-r2-cloud-storage.php
+msgid "Connection established successfully!"
+msgstr "Conexão estabelecida com sucesso!"
+
+#: includes/class-r2-cloud-storage.php
+msgid "Connection error."
+msgstr "Erro na conexão."
+
+#: includes/class-r2-cloud-storage.php
+msgid "Syncing..."
+msgstr "Sincronizando..."
+
+#: includes/class-r2-cloud-storage.php
+msgid "Are you sure?"
+msgstr "Tem certeza?"
+
+#: includes/class-r2-cloud-storage.php
+msgid "Settings saved."
+msgstr "Configurações salvas."
+
+#: includes/class-r2-cloud-storage.php
+msgid "Starting sync..."
+msgstr "Iniciando sincronização..."
+
+#: includes/class-r2-cloud-storage.php
+msgid "Sync paused by user."
+msgstr "Sincronização pausada pelo usuário."
+
+#: includes/class-r2-cloud-storage.php
+msgid "Resume"
+msgstr "Retomar"
+
+#: includes/class-r2-cloud-storage.php
+msgid "Paused"
+msgstr "Pausado"
+
+#: includes/class-r2-cloud-storage.php
+msgid "Completed"
+msgstr "Concluído"
+
+#: includes/class-r2-cloud-storage.php
+msgid "Sync completed!"
+msgstr "Sincronização concluída!"
+
+#: includes/class-r2-cloud-storage.php
+msgid "Batch processed: %1$d/%2$d succeeded."
+msgstr "Lote processado: %1$d/%2$d com sucesso."
+
+#: includes/class-r2-cloud-storage.php
+msgid "Error ID %1$d: %2$s"
+msgstr "Erro ID %1$d: %2$s"
+
+#: includes/class-r2-cloud-storage.php
+msgid "Network error"
+msgstr "Erro de rede"
+
+#: includes/class-r2-cloud-storage.php
+msgid "Please enter a license key."
+msgstr "Por favor, insira uma chave de licença."
+
+#: includes/class-r2-cloud-storage.php
+msgid "Activating..."
+msgstr "Ativando..."
+
+#: includes/class-r2-cloud-storage.php
+msgid "Deactivating..."
+msgstr "Desativando..."
+
+#: includes/class-r2-cloud-storage.php templates/addons-page.php
+msgid "Deactivate"
+msgstr "Desativar"
+
+#: includes/class-r2-cloud-storage.php templates/addons-page.php
+msgid "Activate License"
+msgstr "Ativar Licença"
+
+#: includes/class-r2-cloud-storage.php templates/addons-page.php
+msgid "Active"
+msgstr "Ativa"
+
+#: includes/class-r2-cloud-storage.php
+msgid "Inactive"
+msgstr "Inativa"
+
+#: includes/class-r2-cloud-storage.php templates/sync-page.php
+msgid "Start Sync"
+msgstr "Iniciar Sincronização"
+
+#: includes/class-r2-cloud-storage.php
+msgid "Unknown error"
+msgstr "Erro desconhecido"
+
+#: includes/class-r2-cloud-storage.php includes/class-r2-settings.php
+msgid "Settings"
+msgstr "Configurações"
+
+#: includes/class-r2-client.php
+msgid "R2 returned HTTP %1$d: %2$s"
+msgstr "R2 retornou HTTP %1$d: %2$s"
+
+#: includes/class-r2-client.php includes/class-r2-media-offload.php
+msgid "Local file not found."
+msgstr "Arquivo local não encontrado."
+
+#: includes/class-r2-client.php
+msgid "Unable to read local file."
+msgstr "Não foi possível ler o arquivo local."
+
+#: includes/class-r2-client.php
+msgid "Upload failed HTTP %d"
+msgstr "Upload falhou HTTP %d"
+
+#: includes/class-r2-client.php
+msgid "Delete failed HTTP %d"
+msgstr "Exclusão falhou HTTP %d"
+
+#: includes/class-r2-client.php
+msgid "Object not found."
+msgstr "Objeto não encontrado."
+
+#: includes/class-r2-client.php
+msgid "Unable to parse R2 response."
+msgstr "Não foi possível interpretar a resposta do R2."
+
+#: includes/class-r2-client.php
+msgid "Copy failed HTTP %d"
+msgstr "Cópia falhou HTTP %d"
+
+#: includes/class-r2-client.php
+msgid "R2 Cloud Storage is not configured. Please fill in your credentials."
+msgstr "R2 Cloud Storage não está configurado. Por favor, preencha suas credenciais."
+
+#: includes/class-r2-settings.php
+msgid "R2 Cloud Storage"
+msgstr "R2 Cloud Storage"
+
+#: includes/class-r2-settings.php
+msgid "R2 Storage"
+msgstr "R2 Storage"
+
+#: includes/class-r2-settings.php
+msgid "Sync"
+msgstr "Sincronização"
+
+#: includes/class-r2-settings.php
+msgid "Add-ons"
+msgstr "Add-ons"
+
+#: includes/class-r2-settings.php
+msgid "Cloudflare R2 Credentials"
+msgstr "Credenciais Cloudflare R2"
+
+#: includes/class-r2-settings.php
+msgid "Account ID"
+msgstr "Account ID"
+
+#: includes/class-r2-settings.php
+msgid "Access Key ID"
+msgstr "Access Key ID"
+
+#: includes/class-r2-settings.php
+msgid "Secret Access Key"
+msgstr "Secret Access Key"
+
+#: includes/class-r2-settings.php
+msgid "Bucket"
+msgstr "Bucket"
+
+#: includes/class-r2-settings.php
+msgid "Find it in Cloudflare Dashboard → R2 → Account ID"
+msgstr "Encontre no Painel Cloudflare → R2 → Account ID"
+
+#: includes/class-r2-settings.php
+msgid "Generate at R2 → Manage R2 API Tokens"
+msgstr "Gere em R2 → Manage R2 API Tokens"
+
+#: includes/class-r2-settings.php
+msgid "R2 bucket name."
+msgstr "Nome do bucket R2."
+
+#: includes/class-r2-settings.php
+msgid "Content Delivery"
+msgstr "Entrega de Conteúdo"
+
+#: includes/class-r2-settings.php
+msgid "Custom Domain"
+msgstr "Domínio Personalizado"
+
+#: includes/class-r2-settings.php
+msgid "e.g. cdn.yoursite.com — Set up in Cloudflare R2 → Custom Domains."
+msgstr "ex: cdn.seusite.com — Configure em Cloudflare R2 → Custom Domains."
+
+#: includes/class-r2-settings.php
+msgid "Media Offload"
+msgstr "Offload de Mídia"
+
+#: includes/class-r2-settings.php
+msgid "Auto Offload"
+msgstr "Offload Automático"
+
+#: includes/class-r2-settings.php
+msgid "Automatically upload new media to R2."
+msgstr "Faça upload automático de novas mídias para o R2."
+
+#: includes/class-r2-settings.php
+msgid "Remove Local Copy"
+msgstr "Remover Cópia Local"
+
+#: includes/class-r2-settings.php
+msgid "Remove local file after uploading to R2. Saves disk space."
+msgstr "Remover arquivo local após upload para R2. Economiza espaço em disco."
+
+#: includes/class-r2-settings.php
+msgid "Path Prefix"
+msgstr "Prefixo de Caminho"
+
+#: includes/class-r2-settings.php
+msgid "Prefix for object keys in R2."
+msgstr "Prefixo para as chaves dos objetos no R2."
+
+#: includes/class-r2-settings.php
+msgid "Signed URLs"
+msgstr "URLs Assinadas"
+
+#: includes/class-r2-settings.php
+msgid "Enable Signed URLs"
+msgstr "Habilitar URLs Assinadas"
+
+#: includes/class-r2-settings.php
+msgid "Generate expiring URLs to protect content."
+msgstr "Gere URLs temporárias para proteger conteúdo."
+
+#: includes/class-r2-settings.php
+msgid "Expiration (seconds)"
+msgstr "Expiração (segundos)"
+
+#: includes/class-r2-settings.php
+msgid "Time in seconds until the URL expires. Default: 3600 (1 hour)."
+msgstr "Tempo em segundos até a URL expirar. Padrão: 3600 (1 hora)."
+
+#: includes/class-r2-settings.php
+msgid "Enter your Cloudflare R2 credentials. You can find them in the Cloudflare dashboard under R2 → Manage R2 API Tokens."
+msgstr "Insira suas credenciais do Cloudflare R2. Você pode encontrá-las no painel do Cloudflare em R2 → Manage R2 API Tokens."
+
+#: includes/class-r2-settings.php
+msgid "Already configured. Leave blank to keep the current key."
+msgstr "Já configurado. Deixe em branco para manter a chave atual."
+
+#: includes/class-r2-signed-url.php
+msgid "This attachment was not offloaded to R2."
+msgstr "Este anexo não foi enviado para o R2."
+
+#: includes/class-r2-rest-api.php
+msgid "R2 connection established successfully!"
+msgstr "Conexão com R2 estabelecida com sucesso!"
+
+#: includes/class-r2-rest-api.php
+msgid "Configure R2 credentials before syncing."
+msgstr "Configure as credenciais do R2 antes de sincronizar."
+
+#: includes/class-r2-addon-manager.php
+msgid "WooCommerce"
+msgstr "WooCommerce"
+
+#: includes/class-r2-addon-manager.php
+msgid "Digital downloads via R2, offloaded product images, signed URLs per order."
+msgstr "Downloads digitais via R2, imagens de produtos offloaded, URLs assinadas por pedido."
+
+#: includes/class-r2-addon-manager.php
+msgid "LearnDash"
+msgstr "LearnDash"
+
+#: includes/class-r2-addon-manager.php
+msgid "Course videos and materials served via R2 with signed URL protection."
+msgstr "Vídeos e materiais de cursos servidos via R2 com proteção por URLs assinadas."
+
+#: includes/class-r2-addon-manager.php
+msgid "Tutor LMS"
+msgstr "Tutor LMS"
+
+#: includes/class-r2-addon-manager.php
+msgid "Protected video streaming and course materials via Cloudflare R2."
+msgstr "Streaming de vídeo protegido e materiais de cursos via Cloudflare R2."
+
+#: includes/class-r2-addon-manager.php
+msgid "Easy Digital Downloads"
+msgstr "Easy Digital Downloads"
+
+#: includes/class-r2-addon-manager.php
+msgid "Secure digital download delivery via R2 with temporary signed links."
+msgstr "Entrega segura de downloads digitais via R2 com links assinados temporários."
+
+#: includes/class-r2-addon-manager.php
+msgid "MemberPress"
+msgstr "MemberPress"
+
+#: includes/class-r2-addon-manager.php
+msgid "Protected member content served via R2 with access control."
+msgstr "Conteúdo protegido de membros servido via R2 com controle de acesso."
+
+#: includes/class-r2-addon-manager.php
+msgid "BuddyBoss"
+msgstr "BuddyBoss"
+
+#: includes/class-r2-addon-manager.php
+msgid "Community uploads and user media stored on R2."
+msgstr "Uploads da comunidade e mídias de usuários armazenados no R2."
+
+#: includes/class-r2-addon-manager.php
+msgid "License activated successfully!"
+msgstr "Licença ativada com sucesso!"
+
+#: includes/class-r2-addon-manager.php
+msgid "Error activating license."
+msgstr "Erro ao ativar licença."
+
+#: includes/class-r2-addon-manager.php
+msgid "No license found for this add-on."
+msgstr "Nenhuma licença encontrada para este add-on."
+
+#: includes/class-r2-addon-manager.php
+msgid "License deactivated successfully."
+msgstr "Licença desativada com sucesso."
+
+#: includes/class-r2-addon-manager.php
+msgid "Error deactivating license."
+msgstr "Erro ao desativar licença."
+
+#: templates/settings-page.php
+msgid "Total Media"
+msgstr "Total de Mídia"
+
+#: templates/settings-page.php
+msgid "On R2"
+msgstr "No R2"
+
+#: templates/settings-page.php
+msgid "Pending"
+msgstr "Pendentes"
+
+#: templates/settings-page.php
+msgid "Active Add-ons"
+msgstr "Add-ons Ativos"
+
+#: templates/settings-page.php
+msgid "Save Settings"
+msgstr "Salvar Configurações"
+
+#: templates/settings-page.php
+msgid "Test Connection"
+msgstr "Testar Conexão"
+
+#: templates/settings-page.php
+msgid "R2 vs S3 — Why Cloudflare R2?"
+msgstr "R2 vs S3 — Por que Cloudflare R2?"
+
+#: templates/settings-page.php
+msgid "See how Cloudflare R2 compares to Amazon S3 and save up to 10x on storage costs."
+msgstr "Veja como o Cloudflare R2 se compara ao Amazon S3 e economize até 10x nos custos de armazenamento."
+
+#: templates/settings-page.php
+msgid "Feature"
+msgstr "Recurso"
+
+#: templates/settings-page.php
+msgid "Egress Fee"
+msgstr "Taxa de Egresso"
+
+#: templates/settings-page.php
+msgid "Free — $0/GB"
+msgstr "Grátis — $0/GB"
+
+#: templates/settings-page.php
+msgid "Storage Price"
+msgstr "Preço de Armazenamento"
+
+#: templates/settings-page.php
+msgid "mo"
+msgstr "mês"
+
+#: templates/settings-page.php
+msgid "Class A Ops (write)"
+msgstr "Operações Classe A (escrita)"
+
+#: templates/settings-page.php
+msgid "million"
+msgstr "milhão"
+
+#: templates/settings-page.php
+msgid "Class B Ops (read)"
+msgstr "Operações Classe B (leitura)"
+
+#: templates/settings-page.php
+msgid "Built-in CDN"
+msgstr "CDN Integrada"
+
+#: templates/settings-page.php
+msgid "Yes — Cloudflare global network"
+msgstr "Sim — Rede global Cloudflare"
+
+#: templates/settings-page.php
+msgid "No — requires CloudFront (extra cost)"
+msgstr "Não — requer CloudFront (custo extra)"
+
+#: templates/settings-page.php
+msgid "S3-Compatible API"
+msgstr "API Compatível com S3"
+
+#: templates/settings-page.php
+msgid "Yes"
+msgstr "Sim"
+
+#: templates/settings-page.php
+msgid "Yes (native)"
+msgstr "Sim (nativo)"
+
+#: templates/settings-page.php
+msgid "Free Tier"
+msgstr "Nível Gratuito"
+
+#: templates/settings-page.php
+msgid "10 GB storage + 10M reads/mo"
+msgstr "10 GB de armazenamento + 10M leituras/mês"
+
+#: templates/settings-page.php
+msgid "5 GB storage (12 months only)"
+msgstr "5 GB de armazenamento (somente 12 meses)"
+
+#: templates/settings-page.php
+msgid "With 1 TB of storage and 10 TB of egress/month, you save over $900/month with R2."
+msgstr "Com 1 TB de armazenamento e 10 TB de egresso/mês, você economiza mais de $900/mês com R2."
+
+#: templates/sync-page.php
+msgid "Media Sync"
+msgstr "Sincronização de Mídia"
+
+#: templates/sync-page.php
+msgid "Configure your R2 credentials first in the %s."
+msgstr "Configure suas credenciais R2 primeiro na %s."
+
+#: templates/sync-page.php
+msgid "Migrate Existing Media to R2"
+msgstr "Migrar Mídia Existente para o R2"
+
+#: templates/sync-page.php
+msgid "This tool uploads all existing media files to Cloudflare R2. The process runs in batches to avoid overloading the server."
+msgstr "Esta ferramenta envia todos os arquivos de mídia existentes para o Cloudflare R2. O processo é executado em lotes para evitar sobrecarregar o servidor."
+
+#: templates/sync-page.php
+msgid "Waiting..."
+msgstr "Aguardando..."
+
+#: templates/sync-page.php
+msgid "Log"
+msgstr "Log"
+
+#: templates/sync-page.php
+msgid "Pause"
+msgstr "Pausar"
+
+#: templates/addons-page.php
+msgid "R2 Cloud Storage Add-ons"
+msgstr "Add-ons do R2 Cloud Storage"
+
+#: templates/addons-page.php
+msgid "Extend R2 Cloud Storage with integrations for your favorite platforms. Each add-on is optimized for its specific platform."
+msgstr "Estenda o R2 Cloud Storage com integrações para suas plataformas favoritas. Cada add-on é otimizado para sua plataforma específica."
+
+#: templates/addons-page.php
+msgid "License Key"
+msgstr "Chave de Licença"
+
+#: templates/addons-page.php
+msgid "Installed"
+msgstr "Instalado"
+
+#: templates/addons-page.php
+msgid "Requires %s"
+msgstr "Requer %s"
+
+#: templates/addons-page.php
+msgid "Get Add-on"
+msgstr "Obter Add-on"
+
+#: templates/addons-page.php
+msgid "Build Your Own Add-on"
+msgstr "Crie Seu Próprio Add-on"
+
+#: templates/addons-page.php
+msgid "R2 Cloud Storage is extensible. Use our hooks and filters to create custom integrations."
+msgstr "R2 Cloud Storage é extensível. Use nossos hooks e filtros para criar integrações personalizadas."
