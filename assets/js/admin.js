@@ -294,11 +294,12 @@
             if (this.paused || !this.syncing || this.syncType !== 'folder') return;
 
             var skipExisting = $('#r2cs-skip-existing-checkbox').is(':checked');
+            var removeLocal  = $('#r2cs-remove-local-checkbox').is(':checked');
 
             $.ajax({
                 url: r2csAdmin.restUrl + 'sync/folder/batch',
                 method: 'POST',
-                data: JSON.stringify({ batch_size: 15, skip_existing: skipExisting }),
+                data: JSON.stringify({ batch_size: 15, skip_existing: skipExisting, remove_local: removeLocal }),
                 contentType: 'application/json',
                 beforeSend: function (xhr) {
                     xhr.setRequestHeader('X-WP-Nonce', r2csAdmin.restNonce);
@@ -313,9 +314,16 @@
                     }
 
                     var data = res.data;
-                    var skippedDetail = data.skipped ? ' (' + data.skipped + ' skipped)' : '';
+                    var details = [];
+                    if (data.skipped) {
+                        details.push(data.skipped + ' skipped');
+                    }
+                    if (data.deleted) {
+                        details.push(data.deleted + ' local files removed');
+                    }
+                    var detailsStr = details.length > 0 ? ' (' + details.join(', ') + ')' : '';
                     self.addLog(
-                        r2csAdmin.i18n.batchSuccess.replace('%1$d', data.success).replace('%2$d', data.processed) + skippedDetail,
+                        r2csAdmin.i18n.batchSuccess.replace('%1$d', data.success).replace('%2$d', data.processed) + detailsStr,
                         data.errors.length > 0 ? 'error' : 'success'
                     );
 

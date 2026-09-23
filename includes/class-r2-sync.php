@@ -354,13 +354,20 @@ class R2_Sync {
 	/**
 	 * Process a batch of files from the folder sync queue.
 	 *
-	 * @param int  $batch_size    Number of files to process.
-	 * @param bool $skip_existing Whether to skip files already offloaded.
-	 * @return array { processed: int, success: int, skipped: int, errors: array, remaining: int, total: int, synced: int }
+	 * @param int       $batch_size    Number of files to process.
+	 * @param bool      $skip_existing Whether to skip files already offloaded.
+	 * @param bool|null $remove_local  Whether to remove local files after upload/verification. Defaults to plugin setting.
+	 * @return array { processed: int, success: int, skipped: int, deleted: int, errors: array, remaining: int, total: int, synced: int }
 	 */
-	public function sync_folder_batch( $batch_size = 0, $skip_existing = true ) {
+	public function sync_folder_batch( $batch_size = 0, $skip_existing = true, $remove_local = null ) {
 		if ( $batch_size <= 0 ) {
 			$batch_size = self::BATCH_SIZE;
+		}
+
+		if ( null === $remove_local ) {
+			$remove_local = (bool) $this->settings->get( 'remove_local' );
+		} else {
+			$remove_local = (bool) $remove_local;
 		}
 
 		$state = get_option( 'r2cs_folder_sync_state', false );
@@ -377,6 +384,7 @@ class R2_Sync {
 			'processed' => 0,
 			'success'   => 0,
 			'skipped'   => 0,
+			'deleted'   => 0,
 			'errors'    => array(),
 			'remaining' => count( $queue ),
 			'total'     => isset( $state['total'] ) ? (int) $state['total'] : 0,
@@ -418,11 +426,13 @@ class R2_Sync {
 
 			if ( $skip_existing ) {
 				$already_offloaded = false;
+				$verified_in_r2    = false;
 
 				if ( $attachment_id > 0 && get_post_meta( $attachment_id, R2_Media_Offload::META_KEY, true ) ) {
 					$already_offloaded = true;
 				} elseif ( $this->client->object_exists( $remote_key ) ) {
 					$already_offloaded = true;
+					$verified_in_r2    = true;
 					if ( $attachment_id > 0 ) {
 						update_post_meta( $attachment_id, R2_Media_Offload::META_KEY, true );
 						update_post_meta( $attachment_id, R2_Media_Offload::REMOTE_KEY_META, $remote_key );
@@ -434,6 +444,20 @@ class R2_Sync {
 					$results['success']++;
 					$results['synced']++;
 					$results['skipped']++;
+
+					if ( $remove_local && file_exists( $local_file ) ) {
+						// Safety check: before deleting an existing file, ensure it exists in R2.
+						if ( $verified_in_r2 || $this->client->object_exists( $remote_key ) ) {
+							wp_delete_file( $local_file );
+							if ( file_exists( $local_file ) ) {
+								@unlink( $local_file );
+							}
+							if ( ! file_exists( $local_file ) ) {
+								$results['deleted']++;
+							}
+						}
+					}
+
 					continue;
 				}
 			}
@@ -455,12 +479,23 @@ class R2_Sync {
 					update_post_meta( $attachment_id, R2_Media_Offload::REMOTE_KEY_META, $remote_key );
 					delete_post_meta( $attachment_id, '_r2cs_error' );
 				}
+
+				if ( $remove_local && file_exists( $local_file ) ) {
+					wp_delete_file( $local_file );
+					if ( file_exists( $local_file ) ) {
+						@unlink( $local_file );
+					}
+					if ( ! file_exists( $local_file ) ) {
+						$results['deleted']++;
+					}
+				}
 			}
 		}
 
 		$state['queue']       = $queue;
 		$state['synced']      = $results['synced'];
 		$state['skipped']     = ( isset( $state['skipped'] ) ? (int) $state['skipped'] : 0 ) + $results['skipped'];
+		$state['deleted']     = ( isset( $state['deleted'] ) ? (int) $state['deleted'] : 0 ) + $results['deleted'];
 		$results['remaining'] = count( $queue );
 
 		if ( empty( $queue ) ) {
@@ -484,6 +519,7 @@ class R2_Sync {
 			return array(
 				'total'      => 0,
 				'synced'     => 0,
+				'deleted'    => 0,
 				'remaining'  => 0,
 				'percentage' => 0,
 				'folder'     => basename( (string) $this->get_uploads_folder_path() ),
@@ -492,12 +528,14 @@ class R2_Sync {
 
 		$total     = (int) ( $state['total'] ?? 0 );
 		$synced    = (int) ( $state['synced'] ?? 0 );
+		$deleted   = (int) ( $state['deleted'] ?? 0 );
 		$remaining = count( (array) ( $state['queue'] ?? array() ) );
 		$pct       = $total > 0 ? round( ( $synced / $total ) * 100, 1 ) : 0;
 
 		return array(
 			'total'      => $total,
 			'synced'     => $synced,
+			'deleted'    => $deleted,
 			'remaining'  => $remaining,
 			'percentage' => $pct,
 			'folder'     => basename( (string) ( $state['folder'] ?? '' ) ),

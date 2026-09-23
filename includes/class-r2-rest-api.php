@@ -284,8 +284,9 @@ class R2_REST_API {
 		$batch_size    = $request->get_param( 'batch_size' );
 		$batch_size    = $batch_size ? absint( $batch_size ) : R2_Sync::BATCH_SIZE;
 		$skip_existing = (bool) ( $request->get_param( 'skip_existing' ) ?? true );
+		$remove_local  = $request->has_param( 'remove_local' ) ? (bool) $request->get_param( 'remove_local' ) : null;
 
-		$result = $this->sync->sync_folder_batch( $batch_size, $skip_existing );
+		$result = $this->sync->sync_folder_batch( $batch_size, $skip_existing, $remove_local );
 
 		return new \WP_REST_Response( array(
 			'success' => true,

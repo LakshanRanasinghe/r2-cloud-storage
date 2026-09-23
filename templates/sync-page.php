@@ -106,6 +106,10 @@ $folder_name     = $uploads_folder ? basename( $uploads_folder ) : 'besv-uploads
 						<input type="checkbox" id="r2cs-skip-existing-checkbox" checked="checked" autocomplete="off">
 						<strong><?php esc_html_e( 'Skip files already offloaded to R2 (prevents redundant re-uploads)', 'r2-cloud-storage' ); ?></strong>
 					</label>
+					<label style="display: block; margin-bottom: 8px;">
+						<input type="checkbox" id="r2cs-remove-local-checkbox" <?php checked( (bool) $r2cs_settings->get( 'remove_local' ) ); ?> autocomplete="off">
+						<strong><?php esc_html_e( 'Remove local files after successful upload or verification (Saves disk space)', 'r2-cloud-storage' ); ?></strong>
+					</label>
 					<label style="display: block;">
 						<input type="checkbox" id="r2cs-sync-webp-checkbox" checked="checked" disabled="disabled">
 						<span><?php esc_html_e( 'Auto-detect & sync companion .webp images alongside JPG/PNG files (Enabled)', 'r2-cloud-storage' ); ?></span>
