@@ -114,6 +114,7 @@
             this.syncing = true;
             this.paused = false;
             this.syncType = 'media';
+            this.retryCount = 0;
 
             var retryFailed = $('#r2cs-retry-failed-checkbox').is(':checked');
             var failedCount = parseInt($('#r2cs-stat-failed').text(), 10) || 0;
@@ -162,6 +163,7 @@
             this.syncing = true;
             this.paused = false;
             this.syncType = 'folder';
+            this.retryCount = 0;
 
             var $startBtn = $('#r2cs-start-sync');
             var $folderBtn = $('#r2cs-start-folder-sync');
@@ -172,20 +174,27 @@
             $stopBtn.show();
             $('.r2cs-progress-container').show();
             $('#r2cs-sync-log').show();
-            $('#r2cs-sync-status').text('Scanning uploads directory...');
+            $('#r2cs-sync-status').text('Checking uploads directory...');
 
-            this.addLog(r2csAdmin.i18n.folderSyncStarting || 'Scanning uploads folder and starting sync...');
+            this.addLog(r2csAdmin.i18n.folderSyncStarting || 'Checking uploads folder and starting sync...');
 
             var self = this;
+            var skipExisting = $('#r2cs-skip-existing-checkbox').is(':checked');
+
             $.ajax({
                 url: r2csAdmin.restUrl + 'sync/folder/start',
                 method: 'POST',
+                data: JSON.stringify({ skip_existing: skipExisting }),
+                contentType: 'application/json',
                 beforeSend: function (xhr) {
                     xhr.setRequestHeader('X-WP-Nonce', r2csAdmin.restNonce);
                 },
                 success: function (res) {
                     if (res.message) {
-                        self.addLog(res.message, 'info');
+                        self.addLog(res.message, res.resumed ? 'warning' : 'info');
+                    }
+                    if (res.progress) {
+                        self.updateFolderProgress(res.progress);
                     }
                     self.runFolderBatch();
                 },
@@ -225,6 +234,8 @@
                     xhr.setRequestHeader('X-WP-Nonce', r2csAdmin.restNonce);
                 },
                 success: function (res) {
+                    self.retryCount = 0;
+
                     if (!res.success) {
                         self.addLog(r2csAdmin.i18n.error + ': ' + (res.message || r2csAdmin.i18n.errorUnknown), 'error');
                         self.finishSync();
@@ -258,6 +269,15 @@
                     }
                 },
                 error: function (xhr) {
+                    self.retryCount = (self.retryCount || 0) + 1;
+                    if (self.retryCount <= 3 && self.syncing && !self.paused) {
+                        self.addLog('Network glitch detected. Retrying batch in 3 seconds... (Attempt ' + self.retryCount + ' of 3)', 'warning');
+                        setTimeout(function () {
+                            self.runBatch();
+                        }, 3000);
+                        return;
+                    }
+                    self.retryCount = 0;
                     var msg = r2csAdmin.i18n.networkError;
                     if (xhr.responseJSON && xhr.responseJSON.message) {
                         msg = xhr.responseJSON.message;
@@ -273,15 +293,19 @@
 
             if (this.paused || !this.syncing || this.syncType !== 'folder') return;
 
+            var skipExisting = $('#r2cs-skip-existing-checkbox').is(':checked');
+
             $.ajax({
                 url: r2csAdmin.restUrl + 'sync/folder/batch',
                 method: 'POST',
-                data: JSON.stringify({ batch_size: 15 }),
+                data: JSON.stringify({ batch_size: 15, skip_existing: skipExisting }),
                 contentType: 'application/json',
                 beforeSend: function (xhr) {
                     xhr.setRequestHeader('X-WP-Nonce', r2csAdmin.restNonce);
                 },
                 success: function (res) {
+                    self.retryCount = 0;
+
                     if (!res.success) {
                         self.addLog(r2csAdmin.i18n.error + ': ' + (res.message || r2csAdmin.i18n.errorUnknown), 'error');
                         self.finishSync();
@@ -289,8 +313,9 @@
                     }
 
                     var data = res.data;
+                    var skippedDetail = data.skipped ? ' (' + data.skipped + ' skipped)' : '';
                     self.addLog(
-                        r2csAdmin.i18n.batchSuccess.replace('%1$d', data.success).replace('%2$d', data.processed),
+                        r2csAdmin.i18n.batchSuccess.replace('%1$d', data.success).replace('%2$d', data.processed) + skippedDetail,
                         data.errors.length > 0 ? 'error' : 'success'
                     );
 
@@ -305,13 +330,22 @@
                     if (data.remaining > 0 && self.syncing && !self.paused) {
                         setTimeout(function () {
                             self.runFolderBatch();
-                        }, 400);
+                        }, 300);
                     } else if (data.remaining === 0) {
                         self.addLog(r2csAdmin.i18n.syncComplete, 'success');
                         self.finishSync();
                     }
                 },
                 error: function (xhr) {
+                    self.retryCount = (self.retryCount || 0) + 1;
+                    if (self.retryCount <= 3 && self.syncing && !self.paused) {
+                        self.addLog('Network glitch detected. Retrying batch in 3 seconds... (Attempt ' + self.retryCount + ' of 3)', 'warning');
+                        setTimeout(function () {
+                            self.runFolderBatch();
+                        }, 3000);
+                        return;
+                    }
+                    self.retryCount = 0;
                     var msg = r2csAdmin.i18n.networkError;
                     if (xhr.responseJSON && xhr.responseJSON.message) {
                         msg = xhr.responseJSON.message;
@@ -365,6 +399,7 @@
             this.syncing = false;
             this.paused = false;
             this.syncType = null;
+            this.retryCount = 0;
             $('#r2cs-start-sync').show().html(
                 '<span class="dashicons dashicons-cloud-upload"></span> ' + (r2csAdmin.i18n.startSync || 'Start Media Library Sync')
             );

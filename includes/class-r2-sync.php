@@ -303,10 +303,32 @@ class R2_Sync {
 	/**
 	 * Initialize or reset the folder sync queue.
 	 *
-	 * @return array { total: int, folder: string }
+	 * @param bool $force_restart Whether to force a full re-scan and discard any previous interrupted queue.
+	 * @return array { total: int, folder: string, resumed: bool, remaining: int }
 	 */
-	public function init_folder_sync() {
+	public function init_folder_sync( $force_restart = false ) {
 		$folder = $this->get_uploads_folder_path();
+		if ( ! $folder || ! is_dir( $folder ) ) {
+			return array(
+				'total'     => 0,
+				'folder'    => '',
+				'resumed'   => false,
+				'remaining' => 0,
+			);
+		}
+
+		$existing_state = get_option( 'r2cs_folder_sync_state', false );
+
+		// Resume existing queue if one exists with remaining files for the same folder, unless force_restart is requested.
+		if ( ! $force_restart && is_array( $existing_state ) && ! empty( $existing_state['queue'] ) && ( $existing_state['folder'] ?? '' ) === $folder ) {
+			return array(
+				'total'     => isset( $existing_state['total'] ) ? (int) $existing_state['total'] : count( $existing_state['queue'] ),
+				'folder'    => basename( $folder ),
+				'resumed'   => true,
+				'remaining' => count( $existing_state['queue'] ),
+			);
+		}
+
 		$files  = $this->scan_uploads_folder( array( 'jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'avif', 'pdf' ), 0 );
 
 		$state = array(
@@ -314,6 +336,7 @@ class R2_Sync {
 			'total'     => count( $files ),
 			'queue'     => $files,
 			'synced'    => 0,
+			'skipped'   => 0,
 			'errors'    => array(),
 			'timestamp' => time(),
 		);
@@ -321,18 +344,21 @@ class R2_Sync {
 		update_option( 'r2cs_folder_sync_state', $state, false );
 
 		return array(
-			'total'  => $state['total'],
-			'folder' => basename( $folder ),
+			'total'     => $state['total'],
+			'folder'    => basename( $folder ),
+			'resumed'   => false,
+			'remaining' => $state['total'],
 		);
 	}
 
 	/**
 	 * Process a batch of files from the folder sync queue.
 	 *
-	 * @param int $batch_size Number of files to process.
-	 * @return array { processed: int, success: int, errors: array, remaining: int, total: int, synced: int }
+	 * @param int  $batch_size    Number of files to process.
+	 * @param bool $skip_existing Whether to skip files already offloaded.
+	 * @return array { processed: int, success: int, skipped: int, errors: array, remaining: int, total: int, synced: int }
 	 */
-	public function sync_folder_batch( $batch_size = 0 ) {
+	public function sync_folder_batch( $batch_size = 0, $skip_existing = true ) {
 		if ( $batch_size <= 0 ) {
 			$batch_size = self::BATCH_SIZE;
 		}
@@ -350,6 +376,7 @@ class R2_Sync {
 		$results = array(
 			'processed' => 0,
 			'success'   => 0,
+			'skipped'   => 0,
 			'errors'    => array(),
 			'remaining' => count( $queue ),
 			'total'     => isset( $state['total'] ) ? (int) $state['total'] : 0,
@@ -357,6 +384,7 @@ class R2_Sync {
 		);
 
 		if ( empty( $queue ) ) {
+			delete_option( 'r2cs_folder_sync_state' );
 			return $results;
 		}
 
@@ -376,6 +404,40 @@ class R2_Sync {
 				continue;
 			}
 
+			// If an attachment matches this file in WordPress, look it up.
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+			$attachment_id = (int) $wpdb->get_var( $wpdb->prepare(
+				"SELECT post_id FROM {$wpdb->postmeta}
+				 WHERE meta_key = '_wp_attached_file'
+				   AND ( meta_value = %s OR meta_value = %s OR meta_value LIKE %s )
+				 LIMIT 1",
+				$rel_path,
+				'besv-uploads/' . $rel_path,
+				'%' . $wpdb->esc_like( $rel_path )
+			) );
+
+			if ( $skip_existing ) {
+				$already_offloaded = false;
+
+				if ( $attachment_id > 0 && get_post_meta( $attachment_id, R2_Media_Offload::META_KEY, true ) ) {
+					$already_offloaded = true;
+				} elseif ( $this->client->object_exists( $remote_key ) ) {
+					$already_offloaded = true;
+					if ( $attachment_id > 0 ) {
+						update_post_meta( $attachment_id, R2_Media_Offload::META_KEY, true );
+						update_post_meta( $attachment_id, R2_Media_Offload::REMOTE_KEY_META, $remote_key );
+						delete_post_meta( $attachment_id, '_r2cs_error' );
+					}
+				}
+
+				if ( $already_offloaded ) {
+					$results['success']++;
+					$results['synced']++;
+					$results['skipped']++;
+					continue;
+				}
+			}
+
 			$mime_type = $this->client->detect_mime_type( $local_file );
 			$upload    = $this->client->upload_file( $local_file, $remote_key, $mime_type );
 
@@ -388,18 +450,6 @@ class R2_Sync {
 				$results['success']++;
 				$results['synced']++;
 
-				// If an attachment matches this file in WordPress, link it as offloaded.
-				// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-				$attachment_id = (int) $wpdb->get_var( $wpdb->prepare(
-					"SELECT post_id FROM {$wpdb->postmeta}
-					 WHERE meta_key = '_wp_attached_file'
-					   AND ( meta_value = %s OR meta_value = %s OR meta_value LIKE %s )
-					 LIMIT 1",
-					$rel_path,
-					'besv-uploads/' . $rel_path,
-					'%' . $wpdb->esc_like( $rel_path )
-				) );
-
 				if ( $attachment_id > 0 ) {
 					update_post_meta( $attachment_id, R2_Media_Offload::META_KEY, true );
 					update_post_meta( $attachment_id, R2_Media_Offload::REMOTE_KEY_META, $remote_key );
@@ -408,11 +458,17 @@ class R2_Sync {
 			}
 		}
 
-		$state['queue']     = $queue;
-		$state['synced']    = $results['synced'];
+		$state['queue']       = $queue;
+		$state['synced']      = $results['synced'];
+		$state['skipped']     = ( isset( $state['skipped'] ) ? (int) $state['skipped'] : 0 ) + $results['skipped'];
 		$results['remaining'] = count( $queue );
 
-		update_option( 'r2cs_folder_sync_state', $state, false );
+		if ( empty( $queue ) ) {
+			// All files completed in folder sync. Clear queue so next run starts fresh.
+			delete_option( 'r2cs_folder_sync_state' );
+		} else {
+			update_option( 'r2cs_folder_sync_state', $state, false );
+		}
 
 		return $results;
 	}

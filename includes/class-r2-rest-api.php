@@ -237,9 +237,10 @@ class R2_REST_API {
 	/**
 	 * POST /r2cs/v1/sync/folder/start
 	 *
+	 * @param \WP_REST_Request $request
 	 * @return \WP_REST_Response
 	 */
-	public function start_folder_sync() {
+	public function start_folder_sync( \WP_REST_Request $request ) {
 		if ( ! $this->settings->is_configured() ) {
 			return new \WP_REST_Response( array(
 				'success' => false,
@@ -247,16 +248,28 @@ class R2_REST_API {
 			), 400 );
 		}
 
-		$init = $this->sync->init_folder_sync();
+		$force_restart = (bool) $request->get_param( 'force_restart' );
+		$init          = $this->sync->init_folder_sync( $force_restart );
 
-		return new \WP_REST_Response( array(
-			'success'  => true,
-			'message'  => sprintf(
+		$message = ! empty( $init['resumed'] )
+			? sprintf(
+				/* translators: 1: remaining files, 2: total files, 3: folder name */
+				__( 'Resuming sync for %3$s: %1$d remaining of %2$d files.', 'r2-cloud-storage' ),
+				$init['remaining'],
+				$init['total'],
+				$init['folder']
+			)
+			: sprintf(
 				/* translators: 1: number of files, 2: folder name */
 				__( 'Found %1$d files in %2$s ready to sync.', 'r2-cloud-storage' ),
 				$init['total'],
 				$init['folder']
-			),
+			);
+
+		return new \WP_REST_Response( array(
+			'success'  => true,
+			'message'  => $message,
+			'resumed'  => ! empty( $init['resumed'] ),
 			'progress' => $this->sync->get_folder_sync_progress(),
 		) );
 	}
@@ -268,10 +281,11 @@ class R2_REST_API {
 	 * @return \WP_REST_Response
 	 */
 	public function sync_folder_batch( \WP_REST_Request $request ) {
-		$batch_size = $request->get_param( 'batch_size' );
-		$batch_size = $batch_size ? absint( $batch_size ) : R2_Sync::BATCH_SIZE;
+		$batch_size    = $request->get_param( 'batch_size' );
+		$batch_size    = $batch_size ? absint( $batch_size ) : R2_Sync::BATCH_SIZE;
+		$skip_existing = (bool) ( $request->get_param( 'skip_existing' ) ?? true );
 
-		$result = $this->sync->sync_folder_batch( $batch_size );
+		$result = $this->sync->sync_folder_batch( $batch_size, $skip_existing );
 
 		return new \WP_REST_Response( array(
 			'success' => true,
