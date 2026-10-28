@@ -169,6 +169,7 @@ class R2_Settings {
 		);
 
 		add_settings_field( 'offload_media', __( 'Auto Offload', 'r2-cloud-storage' ), array( $this, 'render_checkbox_field' ), 'r2-cloud-storage', 'r2cs_media', array( 'key' => 'offload_media', 'label' => __( 'Automatically upload new media to R2.', 'r2-cloud-storage' ) ) );
+		add_settings_field( 'keep_local_uploads', __( 'Keep Local Uploads in Folder', 'r2-cloud-storage' ), array( $this, 'render_checkbox_field' ), 'r2-cloud-storage', 'r2cs_media', array( 'key' => 'keep_local_uploads', 'default' => true, 'label' => __( 'Keep all current uploads locally inside your uploads directory (e.g. <code>besv-uploads</code>) and prevent automatic removal on upload.', 'r2-cloud-storage' ) ) );
 		add_settings_field( 'remove_local', __( 'Remove Local Copy', 'r2-cloud-storage' ), array( $this, 'render_checkbox_field' ), 'r2-cloud-storage', 'r2cs_media', array( 'key' => 'remove_local', 'label' => __( 'Remove local file after uploading to R2. Saves disk space.', 'r2-cloud-storage' ) ) );
 		add_settings_field( 'rewrite_html', __( 'Rewrite Frontend URLs', 'r2-cloud-storage' ), array( $this, 'render_checkbox_field' ), 'r2-cloud-storage', 'r2cs_media', array( 'key' => 'rewrite_html', 'default' => true, 'label' => __( 'Automatically rewrite hardcoded upload & theme image URLs in frontend HTML to R2 / CDN (supports /besv-uploads/ and /wp-content/uploads/).', 'r2-cloud-storage' ) ) );
 		add_settings_field( 'path_prefix', __( 'Path Prefix', 'r2-cloud-storage' ), array( $this, 'render_text_field' ), 'r2-cloud-storage', 'r2cs_media', array( 'key' => 'path_prefix', 'description' => __( 'Prefix for object keys in R2.', 'r2-cloud-storage' ), 'placeholder' => 'wp-content/uploads/' ) );
@@ -202,6 +203,7 @@ class R2_Settings {
 		$sanitized['path_prefix']        = sanitize_text_field( $input['path_prefix'] ?? 'wp-content/uploads/' );
 		$sanitized['local_uploads_path'] = sanitize_text_field( $input['local_uploads_path'] ?? '' );
 		$sanitized['offload_media']      = ! empty( $input['offload_media'] );
+		$sanitized['keep_local_uploads'] = ! empty( $input['keep_local_uploads'] );
 		$sanitized['remove_local']  = ! empty( $input['remove_local'] );
 		$sanitized['rewrite_html']  = ! empty( $input['rewrite_html'] );
 		$sanitized['signed_urls']   = ! empty( $input['signed_urls'] );

@@ -220,10 +220,15 @@ class R2_Sync {
 			$candidates[] = trailingslashit( $_SERVER['DOCUMENT_ROOT'] ) . 'besv-uploads';
 		}
 
-		// Priority 3: wp_upload_dir() basedir.
-		$upload_dir = wp_upload_dir();
-		if ( ! empty( $upload_dir['basedir'] ) ) {
-			$candidates[] = untrailingslashit( $upload_dir['basedir'] );
+		// Priority 3: wp_upload_dir() basedir (protected against recursion).
+		static $resolving_upload_dir = false;
+		if ( ! $resolving_upload_dir ) {
+			$resolving_upload_dir = true;
+			$upload_dir = wp_upload_dir();
+			$resolving_upload_dir = false;
+			if ( ! empty( $upload_dir['basedir'] ) ) {
+				$candidates[] = untrailingslashit( $upload_dir['basedir'] );
+			}
 		}
 
 		// Priority 4 (Fallback only): Inside wp-content.
@@ -445,7 +450,9 @@ class R2_Sync {
 					$results['synced']++;
 					$results['skipped']++;
 
-					if ( $remove_local && file_exists( $local_file ) ) {
+					$this->mark_file_synced( $rel_path, $attachment_id, $remote_key );
+
+					if ( ! $this->settings->get( 'keep_local_uploads', true ) && $remove_local && file_exists( $local_file ) ) {
 						// Safety check: before deleting an existing file, ensure it exists in R2.
 						if ( $verified_in_r2 || $this->client->object_exists( $remote_key ) ) {
 							wp_delete_file( $local_file );
@@ -474,13 +481,9 @@ class R2_Sync {
 				$results['success']++;
 				$results['synced']++;
 
-				if ( $attachment_id > 0 ) {
-					update_post_meta( $attachment_id, R2_Media_Offload::META_KEY, true );
-					update_post_meta( $attachment_id, R2_Media_Offload::REMOTE_KEY_META, $remote_key );
-					delete_post_meta( $attachment_id, '_r2cs_error' );
-				}
+				$this->mark_file_synced( $rel_path, $attachment_id, $remote_key );
 
-				if ( $remove_local && file_exists( $local_file ) ) {
+				if ( ! $this->settings->get( 'keep_local_uploads', true ) && $remove_local && file_exists( $local_file ) ) {
 					wp_delete_file( $local_file );
 					if ( file_exists( $local_file ) ) {
 						@unlink( $local_file );
@@ -539,6 +542,260 @@ class R2_Sync {
 			'remaining'  => $remaining,
 			'percentage' => $pct,
 			'folder'     => basename( (string) ( $state['folder'] ?? '' ) ),
+		);
+	}
+
+	/**
+	 * Mark a file as synced locally in WordPress options and postmeta.
+	 *
+	 * @param string $rel_path      Relative file path.
+	 * @param int    $attachment_id Optional attachment ID.
+	 * @param string $remote_key    Optional remote key.
+	 */
+	public function mark_file_synced( $rel_path, $attachment_id = 0, $remote_key = '' ) {
+		$clean_rel = ltrim( preg_replace( '#^(?:besv-uploads/|wp-content/uploads/)#', '', $rel_path ), '/' );
+
+		if ( $attachment_id > 0 ) {
+			update_post_meta( $attachment_id, R2_Media_Offload::META_KEY, true );
+			if ( ! empty( $remote_key ) ) {
+				update_post_meta( $attachment_id, R2_Media_Offload::REMOTE_KEY_META, $remote_key );
+			}
+			delete_post_meta( $attachment_id, '_r2cs_error' );
+		}
+
+		$synced = get_option( 'r2cs_folder_synced_files', array() );
+		if ( ! is_array( $synced ) ) {
+			$synced = array();
+		}
+		$synced[ $clean_rel ] = time();
+		update_option( 'r2cs_folder_synced_files', $synced, false );
+	}
+
+	/**
+	 * Check if a specific file is marked as synced.
+	 *
+	 * @param string $rel_path      Relative file path.
+	 * @param int    $attachment_id Optional attachment ID.
+	 * @return bool
+	 */
+	public function is_file_synced( $rel_path, $attachment_id = 0 ) {
+		if ( $attachment_id > 0 && get_post_meta( $attachment_id, R2_Media_Offload::META_KEY, true ) == '1' ) {
+			return true;
+		}
+
+		$clean_rel = ltrim( preg_replace( '#^(?:besv-uploads/|wp-content/uploads/)#', '', $rel_path ), '/' );
+		$synced    = get_option( 'r2cs_folder_synced_files', array() );
+		if ( is_array( $synced ) && isset( $synced[ $clean_rel ] ) ) {
+			return true;
+		}
+
+		return false;
+	}
+
+	/**
+	 * Get list of files in uploads folder (besv-uploads) that are NOT synced to R2.
+	 *
+	 * @param int    $limit  Limit for pagination.
+	 * @param int    $offset Offset for pagination.
+	 * @param string $search Optional search filter.
+	 * @return array { total: int, items: array, limit: int, offset: int, folder: string }
+	 */
+	public function get_unsynced_files( $limit = 50, $offset = 0, $search = '' ) {
+		$folder = $this->get_uploads_folder_path();
+		if ( ! $folder || ! is_dir( $folder ) ) {
+			return array(
+				'total'  => 0,
+				'items'  => array(),
+				'limit'  => $limit,
+				'offset' => $offset,
+				'folder' => '',
+			);
+		}
+
+		$all_files = $this->scan_uploads_folder();
+		if ( empty( $all_files ) ) {
+			return array(
+				'total'  => 0,
+				'items'  => array(),
+				'limit'  => $limit,
+				'offset' => $offset,
+				'folder' => basename( $folder ),
+			);
+		}
+
+		global $wpdb;
+		// Fast fetch of offloaded attachment files in DB.
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$offloaded_query = $wpdb->get_col( $wpdb->prepare(
+			"SELECT pm_file.meta_value
+			 FROM {$wpdb->postmeta} pm_file
+			 INNER JOIN {$wpdb->postmeta} pm_off ON pm_file.post_id = pm_off.post_id
+			 WHERE pm_file.meta_key = '_wp_attached_file'
+			   AND pm_off.meta_key = %s
+			   AND pm_off.meta_value = '1'",
+			R2_Media_Offload::META_KEY
+		) );
+
+		$offloaded_set = array();
+		if ( ! empty( $offloaded_query ) ) {
+			foreach ( $offloaded_query as $op ) {
+				$clean = ltrim( preg_replace( '#^(?:besv-uploads/|wp-content/uploads/)#', '', $op ), '/' );
+				$offloaded_set[ $clean ] = true;
+			}
+		}
+
+		$folder_synced = get_option( 'r2cs_folder_synced_files', array() );
+		if ( ! is_array( $folder_synced ) ) {
+			$folder_synced = array();
+		}
+
+		// Fast lookup map for attachment IDs by attached file.
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$attachments_map_raw = $wpdb->get_results(
+			"SELECT post_id, meta_value FROM {$wpdb->postmeta} WHERE meta_key = '_wp_attached_file'",
+			ARRAY_A
+		);
+		$attachments_map = array();
+		if ( ! empty( $attachments_map_raw ) ) {
+			foreach ( $attachments_map_raw as $row ) {
+				$clean = ltrim( preg_replace( '#^(?:besv-uploads/|wp-content/uploads/)#', '', $row['meta_value'] ), '/' );
+				$attachments_map[ $clean ] = (int) $row['post_id'];
+			}
+		}
+
+		$folder_dir  = trailingslashit( $folder );
+		$site_url    = function_exists( 'site_url' ) ? site_url() : '';
+		$folder_name = basename( $folder );
+		$folder_url  = untrailingslashit( $site_url ) . '/' . $folder_name;
+
+		$unsynced = array();
+		foreach ( $all_files as $rel_path ) {
+			$clean_path = ltrim( preg_replace( '#^(?:besv-uploads/|wp-content/uploads/)#', '', $rel_path ), '/' );
+
+			// Check if already offloaded via attachment meta or folder index.
+			if ( isset( $offloaded_set[ $clean_path ] ) || isset( $folder_synced[ $clean_path ] ) ) {
+				continue;
+			}
+
+			// If search is provided, filter:
+			if ( ! empty( $search ) && false === stripos( $rel_path, $search ) ) {
+				continue;
+			}
+
+			$full_path = $folder_dir . $rel_path;
+			$size      = file_exists( $full_path ) ? (int) @filesize( $full_path ) : 0;
+			$mtime     = file_exists( $full_path ) ? (int) @filemtime( $full_path ) : 0;
+			$ext       = strtolower( pathinfo( $rel_path, PATHINFO_EXTENSION ) );
+			$is_image  = in_array( $ext, array( 'jpg', 'jpeg', 'png', 'gif', 'webp', 'avif', 'svg' ), true );
+			$att_id    = $attachments_map[ $clean_path ] ?? 0;
+
+			$file_url = $folder_url . '/' . $rel_path;
+
+			$unsynced[] = array(
+				'id'             => $att_id,
+				'path'           => $rel_path,
+				'filename'       => basename( $rel_path ),
+				'size_bytes'     => $size,
+				'size_formatted' => size_format( $size, 1 ),
+				'date'           => $mtime > 0 ? gmdate( 'Y-m-d H:i', $mtime ) : '',
+				'extension'      => $ext,
+				'is_image'       => $is_image,
+				'url'            => $file_url,
+				'synced'         => false,
+			);
+		}
+
+		$total = count( $unsynced );
+		$paged = array_slice( $unsynced, $offset, $limit );
+
+		return array(
+			'total'  => $total,
+			'items'  => $paged,
+			'limit'  => $limit,
+			'offset' => $offset,
+			'folder' => $folder_name,
+		);
+	}
+
+	/**
+	 * Get total count of unsynced files.
+	 *
+	 * @return int
+	 */
+	public function get_unsynced_count() {
+		$data = $this->get_unsynced_files( 1, 0 );
+		return (int) ( $data['total'] ?? 0 );
+	}
+
+	/**
+	 * Sync an individual file to Cloudflare R2 on-demand.
+	 *
+	 * @param string $rel_path      Relative file path in uploads folder.
+	 * @param int    $attachment_id Optional attachment ID.
+	 * @return array|\WP_Error
+	 */
+	public function sync_single_file( $rel_path, $attachment_id = 0 ) {
+		$folder     = $this->get_uploads_folder_path();
+		$clean_rel  = ltrim( preg_replace( '#^(?:besv-uploads/|wp-content/uploads/)#', '', $rel_path ), '/' );
+		$local_file = trailingslashit( $folder ) . $clean_rel;
+		$prefix     = $this->settings->get( 'path_prefix', 'wp-content/uploads/' );
+		$remote_key = trailingslashit( $prefix ) . $clean_rel;
+
+		if ( ! file_exists( $local_file ) ) {
+			return new \WP_Error( 'r2cs_file_not_found', sprintf( __( 'Local file not found on disk: %s', 'r2-cloud-storage' ), $local_file ) );
+		}
+
+		// If attachment ID was not passed, check if one matches in DB.
+		if ( empty( $attachment_id ) ) {
+			global $wpdb;
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+			$attachment_id = (int) $wpdb->get_var( $wpdb->prepare(
+				"SELECT post_id FROM {$wpdb->postmeta}
+				 WHERE meta_key = '_wp_attached_file'
+				   AND ( meta_value = %s OR meta_value = %s OR meta_value LIKE %s )
+				 LIMIT 1",
+				$clean_rel,
+				'besv-uploads/' . $clean_rel,
+				'%' . $wpdb->esc_like( $clean_rel )
+			) );
+		}
+
+		if ( $attachment_id > 0 ) {
+			$media  = r2cs()->get( 'media' );
+			$upload = $media->offload_attachment( $attachment_id );
+			if ( is_wp_error( $upload ) ) {
+				return $upload;
+			}
+		} else {
+			$mime_type = $this->client->detect_mime_type( $local_file );
+			$upload    = $this->client->upload_file( $local_file, $remote_key, $mime_type );
+			if ( is_wp_error( $upload ) ) {
+				return $upload;
+			}
+
+			// Also upload companion WebP files if present.
+			$file_dir   = dirname( $local_file );
+			$file_name  = pathinfo( $local_file, PATHINFO_FILENAME );
+			$remote_dir = dirname( $remote_key );
+			$remote_dir = ( '.' === $remote_dir || empty( $remote_dir ) ) ? '' : trailingslashit( $remote_dir );
+
+			$webp_1 = $file_dir . '/' . $file_name . '.webp';
+			$webp_2 = $local_file . '.webp';
+			if ( file_exists( $webp_1 ) && $webp_1 !== $local_file ) {
+				$this->client->upload_file( $webp_1, $remote_dir . $file_name . '.webp', 'image/webp' );
+			}
+			if ( file_exists( $webp_2 ) && $webp_2 !== $local_file ) {
+				$this->client->upload_file( $webp_2, $remote_key . '.webp', 'image/webp' );
+			}
+		}
+
+		$this->mark_file_synced( $clean_rel, $attachment_id, $remote_key );
+
+		return array(
+			'success'    => true,
+			'path'       => $clean_rel,
+			'remote_key' => $remote_key,
+			'message'    => sprintf( __( 'Successfully synced %s to Cloudflare R2.', 'r2-cloud-storage' ), basename( $clean_rel ) ),
 		);
 	}
 }

@@ -4,7 +4,7 @@ Tags: cloudflare, r2, s3, offload, media
 Requires at least: 6.0
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 1.0.0
+Stable tag: 1.0.3
 License: GPL-2.0-or-later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -117,6 +117,12 @@ The data transmitted includes: the license key, the add-on slug, and the site do
 * [R2 Cloud Storage Privacy Policy](https://r2cloudstorage.com/privacy)
 
 == Changelog ==
+
+= 1.0.3 =
+* Fix: Prevent global WP_Filesystem corruption that broke plugin installation and upload functionality.
+* Fix: Ensure uploads are kept locally in besv-uploads directory without restrictions or deletion.
+* Fix: Stop unwanted page render HTML buffer unlinking.
+* Feature: Add dedicated 'Not Synced Files' panel with real-time search, pagination, and on-demand R2 sync.
 
 = 1.0.0 =
 * Initial release

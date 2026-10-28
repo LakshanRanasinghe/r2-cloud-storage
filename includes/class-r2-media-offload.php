@@ -65,10 +65,56 @@ class R2_Media_Offload {
 			add_action( 'shutdown', array( $this, 'flush_output_buffer' ), 0 );
 		}
 
+		// Ensure upload directory exists and is writable before WordPress checks it.
+		add_filter( 'wp_handle_upload_prefilter', array( $this, 'pre_upload_ensure_directory' ) );
+		add_filter( 'wp_handle_sideload_prefilter', array( $this, 'pre_upload_ensure_directory' ) );
+
 		/**
 		 * Filter to allow add-ons to hook into post-offload actions.
 		 */
 		add_action( 'r2cs_after_offload', array( $this, 'maybe_remove_local' ), 10, 3 );
+	}
+
+	/**
+	 * Ensure the target upload directory exists and has proper write permissions before WordPress processes uploads.
+	 *
+	 * @param array $file Upload file data.
+	 * @return array
+	 */
+	public function pre_upload_ensure_directory( $file ) {
+		$upload_dir = wp_upload_dir();
+		if ( ! empty( $upload_dir['path'] ) ) {
+			$path    = $upload_dir['path'];
+			$basedir = $upload_dir['basedir'] ?? '';
+
+			// If base uploads folder doesn't exist, try creating it.
+			if ( ! empty( $basedir ) && ! file_exists( $basedir ) ) {
+				@wp_mkdir_p( $basedir );
+				if ( ! is_dir( $basedir ) ) {
+					@mkdir( $basedir, 0775, true );
+				}
+			}
+
+			// Ensure month/year subfolder exists with 0775 permissions.
+			if ( ! empty( $path ) && ! file_exists( $path ) ) {
+				$old = umask( 0 );
+				@wp_mkdir_p( $path );
+				if ( ! is_dir( $path ) ) {
+					@mkdir( $path, 0775, true );
+				}
+				umask( $old );
+			}
+
+			// Attempt chmod if directory exists but lacks write permissions.
+			if ( is_dir( $path ) && ! is_writable( $path ) ) {
+				@chmod( $path, 0775 );
+			}
+			if ( ! empty( $basedir ) && is_dir( $basedir ) && ! is_writable( $basedir ) ) {
+				@chmod( $basedir, 0775 );
+			}
+		}
+
+		return $file;
 	}
 
 	/**
@@ -83,7 +129,14 @@ class R2_Media_Offload {
 			return $metadata;
 		}
 
-		$this->process_attachment_offload( $attachment_id, $metadata );
+		try {
+			$this->process_attachment_offload( $attachment_id, $metadata );
+		} catch ( \Throwable $e ) {
+			// Never block or restrict media uploads if background offloading encounters an issue.
+			if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+				error_log( 'R2CS Offload on Upload Error: ' . $e->getMessage() );
+			}
+		}
 
 		return $metadata;
 	}
@@ -267,6 +320,11 @@ class R2_Media_Offload {
 	 * @param string $file          Resolved local file path.
 	 */
 	public function maybe_remove_local( $attachment_id, $metadata, $file = '' ) {
+		// Do not remove local files if keep_local_uploads is enabled (default: true).
+		if ( $this->settings->get( 'keep_local_uploads', true ) ) {
+			return;
+		}
+
 		if ( ! $this->settings->get( 'remove_local' ) ) {
 			return;
 		}
@@ -900,15 +958,15 @@ class R2_Media_Offload {
 		}
 		$r2_host = 'r2.cloudflarestorage.com';
 
-		// Match root-relative or absolute upload URLs with media extensions.
+		// Match root-relative or absolute upload URLs with media extensions (exclude zip to protect plugin installations).
 		// Starts after a delimiter (quote, whitespace, paren, comma, or string start).
-		$pattern = '#(?<=["\'\s\(\>,]|^)(?P<url_prefix>(?:https?:)?(?://|\\\\/\\\\/)[^"\'\s<>\)\?,]+)?(?P<slash>/|\\\/)(?:' . $folder_regex . ')(?P<rel>(?:/|\\\/)[^\s"\'<>\)\?,]+\.(?:jpe?g|png|gif|webp|svg|avif|ico|pdf|mp4|mp3|zip|docx?|xlsx?))(?P<query>\?[^\s"\'<>\)]*)?#i';
+		$pattern = '#(?<=["\'\s\(\>,]|^)(?P<url_prefix>(?:https?:)?(?://|\\\\/\\\\/)[^"\'\s<>\)\?,]+)?(?P<slash>/|\\\/)(?:' . $folder_regex . ')(?P<rel>(?:/|\\\/)[^\s"\'<>\)\?,]+\.(?:jpe?g|png|gif|webp|svg|avif|ico|pdf|mp4|mp3|docx?|xlsx?))(?P<query>\?[^\s"\'<>\)]*)?#i';
 
 		$client = $this->client;
 
 		return preg_replace_callback(
 			$pattern,
-			function( $matches ) use ( $client, $use_signed, $expiry, $prefix, $cdn_host, $r2_host, $sync_folder, $upload_basedir, $remove_local ) {
+			function( $matches ) use ( $client, $use_signed, $expiry, $prefix, $cdn_host, $r2_host, $sync_folder, $upload_basedir ) {
 				$is_json = false !== strpos( $matches['slash'], '\\' );
 
 				// If domain/prefix is present, verify it is not already our CDN or R2 endpoint.
@@ -934,7 +992,9 @@ class R2_Media_Offload {
 
 				$remote_key = ! empty( $prefix ) ? $prefix . '/' . $rel : $rel;
 
-				// Self-healing: If the file is still present on the server disk, upload it to R2.
+				$sync      = function_exists( 'r2cs' ) ? r2cs()->get( 'sync' ) : null;
+				$is_synced = $sync && method_exists( $sync, 'is_file_synced' ) ? $sync->is_file_synced( $rel ) : false;
+
 				$local_file = '';
 				if ( ! empty( $sync_folder ) && file_exists( trailingslashit( $sync_folder ) . $rel ) ) {
 					$local_file = trailingslashit( $sync_folder ) . $rel;
@@ -942,11 +1002,16 @@ class R2_Media_Offload {
 					$local_file = trailingslashit( $upload_basedir ) . $rel;
 				}
 
-				if ( ! empty( $local_file ) ) {
+				// If not yet synced and local file is present on disk, ensure it is in R2 before rewriting:
+				if ( ! $is_synced && ! empty( $local_file ) ) {
 					$mime_type = $client->detect_mime_type( $local_file );
 					$upload    = $client->upload_file( $local_file, $remote_key, $mime_type );
-					if ( ! is_wp_error( $upload ) && $remove_local ) {
-						@unlink( $local_file );
+					if ( is_wp_error( $upload ) ) {
+						// Never break frontend images if R2 upload fails or encounters an issue. Keep working local URL.
+						return $matches[0];
+					}
+					if ( $sync && method_exists( $sync, 'mark_file_synced' ) ) {
+						$sync->mark_file_synced( $rel, 0, $remote_key );
 					}
 				}
 

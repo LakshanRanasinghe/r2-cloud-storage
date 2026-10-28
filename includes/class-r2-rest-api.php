@@ -95,6 +95,28 @@ class R2_REST_API {
 			'permission_callback' => array( $this, 'check_admin_permission' ),
 		) );
 
+		register_rest_route( $namespace, '/unsynced/list', array(
+			'methods'             => 'GET',
+			'callback'            => array( $this, 'get_unsynced_files' ),
+			'permission_callback' => array( $this, 'check_admin_permission' ),
+		) );
+
+		register_rest_route( $namespace, '/unsynced/count', array(
+			'methods'             => 'GET',
+			'callback'            => array( $this, 'get_unsynced_count' ),
+			'permission_callback' => array( $this, 'check_admin_permission' ),
+		) );
+
+		register_rest_route( $namespace, '/unsynced/sync-single', array(
+			'methods'             => 'POST',
+			'callback'            => array( $this, 'sync_single_file' ),
+			'permission_callback' => array( $this, 'check_admin_permission' ),
+			'args'                => array(
+				'path' => array( 'required' => true, 'sanitize_callback' => 'sanitize_text_field' ),
+				'id'   => array( 'required' => false, 'sanitize_callback' => 'absint' ),
+			),
+		) );
+
 		/**
 		 * Fires after core REST routes are registered.
 		 * Add-ons can register their own routes here.
@@ -324,6 +346,7 @@ class R2_REST_API {
 				'path'  => $this->sync->get_uploads_folder_path(),
 				'state' => $this->sync->get_folder_sync_progress(),
 			),
+			'unsynced'    => $this->sync->get_unsynced_count(),
 			'addons'      => r2cs()->addons()->count_active(),
 		);
 
@@ -337,6 +360,81 @@ class R2_REST_API {
 		return new \WP_REST_Response( array(
 			'success' => true,
 			'data'    => $data,
+		) );
+	}
+
+	/**
+	 * GET /r2cs/v1/unsynced/list
+	 *
+	 * @param \WP_REST_Request $request
+	 * @return \WP_REST_Response
+	 */
+	public function get_unsynced_files( \WP_REST_Request $request ) {
+		$limit  = $request->get_param( 'limit' ) ? absint( $request->get_param( 'limit' ) ) : 50;
+		$offset = $request->get_param( 'offset' ) ? absint( $request->get_param( 'offset' ) ) : 0;
+		$search = $request->get_param( 'search' ) ? sanitize_text_field( $request->get_param( 'search' ) ) : '';
+
+		$data = $this->sync->get_unsynced_files( $limit, $offset, $search );
+
+		return new \WP_REST_Response( array(
+			'success' => true,
+			'data'    => $data,
+		) );
+	}
+
+	/**
+	 * GET /r2cs/v1/unsynced/count
+	 *
+	 * @return \WP_REST_Response
+	 */
+	public function get_unsynced_count() {
+		$count = $this->sync->get_unsynced_count();
+
+		return new \WP_REST_Response( array(
+			'success' => true,
+			'count'   => $count,
+		) );
+	}
+
+	/**
+	 * POST /r2cs/v1/unsynced/sync-single
+	 *
+	 * @param \WP_REST_Request $request
+	 * @return \WP_REST_Response
+	 */
+	public function sync_single_file( \WP_REST_Request $request ) {
+		if ( ! $this->settings->is_configured() ) {
+			return new \WP_REST_Response( array(
+				'success' => false,
+				'message' => __( 'Configure R2 credentials before syncing.', 'r2-cloud-storage' ),
+			), 400 );
+		}
+
+		$path = $request->get_param( 'path' );
+		$id   = (int) $request->get_param( 'id' );
+
+		if ( empty( $path ) ) {
+			return new \WP_REST_Response( array(
+				'success' => false,
+				'message' => __( 'Missing file path.', 'r2-cloud-storage' ),
+			), 400 );
+		}
+
+		$result = $this->sync->sync_single_file( $path, $id );
+
+		if ( is_wp_error( $result ) ) {
+			return new \WP_REST_Response( array(
+				'success' => false,
+				'message' => $result->get_error_message(),
+			), 400 );
+		}
+
+		return new \WP_REST_Response( array(
+			'success' => true,
+			'data'    => $result,
+			'stats'   => array(
+				'unsynced' => $this->sync->get_unsynced_count(),
+			),
 		) );
 	}
 

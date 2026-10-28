@@ -76,13 +76,7 @@ class R2_Client {
 			return new \WP_Error( 'r2cs_file_not_readable', sprintf( __( 'Local file is not readable (check permissions): %s', 'r2-cloud-storage' ), $local_path ) );
 		}
 
-		global $wp_filesystem;
-		if ( ! function_exists( 'WP_Filesystem' ) ) {
-			require_once ABSPATH . 'wp-admin/includes/file.php';
-		}
-		WP_Filesystem();
-
-		$body = $wp_filesystem->get_contents( $local_path );
+		$body = @file_get_contents( $local_path );
 		if ( false === $body ) {
 			return new \WP_Error( 'r2cs_file_read_error', __( 'Unable to read local file.', 'r2-cloud-storage' ) );
 		}

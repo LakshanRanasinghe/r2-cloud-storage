@@ -16,12 +16,21 @@
         init: function () {
             this.bindEvents();
             this.loadStats();
+            if ($('#r2cs-unsynced-table').length) {
+                this.loadUnsyncedFiles(0);
+            }
         },
 
         bindEvents: function () {
             $(document).on('click', '#r2cs-test-connection', this.testConnection.bind(this));
             $(document).on('click', '#r2cs-start-sync', this.startSync.bind(this));
             $(document).on('click', '#r2cs-start-folder-sync', this.startFolderSync.bind(this));
+            $(document).on('click', '#r2cs-sync-all-unsynced-btn', this.syncAllUnsynced.bind(this));
+            $(document).on('click', '#r2cs-refresh-unsynced-btn', this.refreshUnsynced.bind(this));
+            $(document).on('click', '.r2cs-btn-sync-single', this.syncSingleFile.bind(this));
+            $(document).on('input', '#r2cs-unsynced-search', this.debounceSearch.bind(this));
+            $(document).on('click', '#r2cs-prev-page', this.prevUnsyncedPage.bind(this));
+            $(document).on('click', '#r2cs-next-page', this.nextUnsyncedPage.bind(this));
             $(document).on('click', '#r2cs-reset-failed-btn', this.resetFailed.bind(this));
             $(document).on('click', '#r2cs-stop-sync', this.stopSync.bind(this));
         },
@@ -36,12 +45,18 @@
                     xhr.setRequestHeader('X-WP-Nonce', r2csAdmin.restNonce);
                 },
                 success: function (res) {
-                    if (res.success && res.data.media) {
-                        $('#r2cs-stat-total').text(res.data.media.total);
-                        $('#r2cs-stat-offloaded').text(res.data.media.offloaded);
-                        $('#r2cs-stat-pending').text(res.data.media.pending);
-                        $('#r2cs-stat-failed').text(res.data.media.failed || 0);
-                        $('#r2cs-stat-addons').text(res.data.addons || 0);
+                    if (res.success && res.data) {
+                        if (res.data.media) {
+                            $('#r2cs-stat-total').text(res.data.media.total);
+                            $('#r2cs-stat-offloaded').text(res.data.media.offloaded);
+                            $('#r2cs-stat-pending').text(res.data.media.pending);
+                            $('#r2cs-stat-failed').text(res.data.media.failed || 0);
+                            $('#r2cs-stat-addons').text(res.data.addons || 0);
+                        }
+                        if (res.data.unsynced !== undefined) {
+                            $('#r2cs-stat-unsynced').text(res.data.unsynced);
+                            $('#r2cs-unsynced-badge').text(res.data.unsynced + ' files');
+                        }
                     }
                 }
             });
@@ -415,6 +430,9 @@
             $('#r2cs-stop-sync').hide();
             $('#r2cs-sync-status').text(r2csAdmin.i18n.completed);
             this.loadStats();
+            if ($('#r2cs-unsynced-table').length) {
+                this.loadUnsyncedFiles(0);
+            }
         },
 
         addLog: function (message, type) {
@@ -428,6 +446,220 @@
             if (log) {
                 log.scrollTop = log.scrollHeight;
             }
+        },
+
+        /* ── Not Synced Files ──────────────────────────── */
+
+        unsyncedOffset: 0,
+        unsyncedLimit: 50,
+        unsyncedTotal: 0,
+        unsyncedSearchTimer: null,
+
+        loadUnsyncedFiles: function (offset, search) {
+            var self = this;
+            if (typeof offset !== 'undefined') {
+                this.unsyncedOffset = parseInt(offset, 10) || 0;
+            }
+            if (typeof search === 'undefined') {
+                search = $('#r2cs-unsynced-search').val() || '';
+            }
+
+            var $tbody = $('#r2cs-unsynced-table-body');
+            var $tableWrap = $('#r2cs-unsynced-table').closest('.r2cs-table-responsive');
+            var $emptyState = $('#r2cs-unsynced-empty');
+            var $pagination = $('#r2cs-unsynced-pagination');
+
+            $tbody.html('<tr><td colspan="6" style="text-align: center; padding: 24px; color: #646970;"><span class="spinner is-active" style="float: none; margin: 0 6px 0 0;"></span> Scanning not synced files...</td></tr>');
+
+            $.ajax({
+                url: r2csAdmin.restUrl + 'unsynced/list?limit=' + this.unsyncedLimit + '&offset=' + this.unsyncedOffset + '&search=' + encodeURIComponent(search),
+                method: 'GET',
+                beforeSend: function (xhr) {
+                    xhr.setRequestHeader('X-WP-Nonce', r2csAdmin.restNonce);
+                },
+                success: function (res) {
+                    if (!res.success || !res.data) {
+                        $tbody.html('<tr><td colspan="6" style="text-align:center;color:#dc3232;padding:16px;">Failed to scan files.</td></tr>');
+                        return;
+                    }
+
+                    var data = res.data;
+                    self.unsyncedTotal = data.total || 0;
+                    $('#r2cs-stat-unsynced').text(self.unsyncedTotal);
+                    $('#r2cs-unsynced-badge').text(self.unsyncedTotal + ' files');
+
+                    if (self.unsyncedTotal === 0) {
+                        $tableWrap.hide();
+                        $pagination.hide();
+                        $emptyState.show();
+                        $('#r2cs-unsynced-showing-text').text('');
+                        return;
+                    }
+
+                    $emptyState.hide();
+                    $tableWrap.show();
+                    $pagination.show();
+
+                    var rowsHtml = '';
+                    var items = data.items || [];
+
+                    if (items.length === 0) {
+                        rowsHtml = '<tr><td colspan="6" style="text-align:center;padding:20px;color:#646970;">No matching files found.</td></tr>';
+                    } else {
+                        items.forEach(function (item) {
+                            var previewHtml = '';
+                            if (item.is_image) {
+                                previewHtml = '<img src="' + item.url + '" class="r2cs-thumb-preview" alt="" onerror="this.onerror=null;this.parentElement.innerHTML=\'<span class=\\\'dashicons dashicons-format-image\\\' style=\\\'font-size:26px;color:#a7aaad;\\\'></span>\';" />';
+                            } else if (item.extension === 'pdf') {
+                                previewHtml = '<span class="dashicons dashicons-pdf" style="font-size: 28px; color: #d63638; width: 28px; height: 28px;"></span>';
+                            } else {
+                                previewHtml = '<span class="dashicons dashicons-media-default" style="font-size: 28px; color: #646970; width: 28px; height: 28px;"></span>';
+                            }
+
+                            rowsHtml += '<tr data-path="' + item.path + '">' +
+                                '<td style="text-align: center; vertical-align: middle;">' + previewHtml + '</td>' +
+                                '<td style="vertical-align: middle;">' +
+                                    '<strong style="font-size: 13px; color: #1d2327;">' + item.filename + '</strong>' +
+                                    '<div style="font-size: 11px; color: #646970; margin-top: 2px;">' +
+                                        '<code class="r2cs-file-path">' + item.path + '</code>' +
+                                    '</div>' +
+                                '</td>' +
+                                '<td style="vertical-align: middle; color: #50575e; font-size: 12px;">' + (item.size_formatted || '—') + '</td>' +
+                                '<td style="vertical-align: middle; color: #50575e; font-size: 12px;">' + (item.date || '—') + '</td>' +
+                                '<td style="vertical-align: middle;">' +
+                                    '<span class="r2cs-badge r2cs-badge-unsynced" id="status-' + self.escapeId(item.path) + '">' +
+                                        '<span class="dashicons dashicons-clock" style="font-size:12px;width:12px;height:12px;margin-right:3px;"></span>Not Synced' +
+                                    '</span>' +
+                                '</td>' +
+                                '<td style="vertical-align: middle; text-align: right;">' +
+                                    '<button type="button" class="button button-small r2cs-btn-sync-single" data-path="' + item.path + '" data-id="' + (item.id || 0) + '">' +
+                                        '<span class="dashicons dashicons-cloud-upload"></span> Sync to R2' +
+                                    '</button>' +
+                                '</td>' +
+                            '</tr>';
+                        });
+                    }
+
+                    $tbody.html(rowsHtml);
+
+                    // Update Pagination
+                    var startNum = self.unsyncedOffset + 1;
+                    var endNum = Math.min(self.unsyncedOffset + self.unsyncedLimit, self.unsyncedTotal);
+                    $('#r2cs-page-info').text('Showing ' + startNum + '–' + endNum + ' of ' + self.unsyncedTotal + ' not synced files');
+                    $('#r2cs-unsynced-showing-text').text(self.unsyncedTotal + ' not synced');
+
+                    $('#r2cs-prev-page').prop('disabled', self.unsyncedOffset <= 0);
+                    $('#r2cs-next-page').prop('disabled', endNum >= self.unsyncedTotal);
+                },
+                error: function () {
+                    $tbody.html('<tr><td colspan="6" style="text-align:center;color:#dc3232;padding:16px;">Error scanning not synced files. Check network or server logs.</td></tr>');
+                }
+            });
+        },
+
+        escapeId: function (str) {
+            return (str || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+        },
+
+        debounceSearch: function (e) {
+            var self = this;
+            clearTimeout(this.unsyncedSearchTimer);
+            this.unsyncedSearchTimer = setTimeout(function () {
+                self.loadUnsyncedFiles(0, $(e.target).val());
+            }, 300);
+        },
+
+        prevUnsyncedPage: function () {
+            if (this.unsyncedOffset > 0) {
+                var newOffset = Math.max(0, this.unsyncedOffset - this.unsyncedLimit);
+                this.loadUnsyncedFiles(newOffset);
+            }
+        },
+
+        nextUnsyncedPage: function () {
+            if (this.unsyncedOffset + this.unsyncedLimit < this.unsyncedTotal) {
+                var newOffset = this.unsyncedOffset + this.unsyncedLimit;
+                this.loadUnsyncedFiles(newOffset);
+            }
+        },
+
+        refreshUnsynced: function (e) {
+            if (e) e.preventDefault();
+            var $btn = $('#r2cs-refresh-unsynced-btn');
+            $btn.prop('disabled', true);
+            var self = this;
+            this.loadStats();
+            this.loadUnsyncedFiles(0);
+            setTimeout(function () {
+                $btn.prop('disabled', false);
+            }, 800);
+        },
+
+        syncSingleFile: function (e) {
+            e.preventDefault();
+            var $btn = $(e.currentTarget);
+            var path = $btn.data('path');
+            var id   = $btn.data('id') || 0;
+            var self = this;
+
+            $btn.prop('disabled', true).html('<span class="spinner is-active" style="float:none;margin:0 4px 0 0;"></span> Syncing...');
+
+            $.ajax({
+                url: r2csAdmin.restUrl + 'unsynced/sync-single',
+                method: 'POST',
+                data: JSON.stringify({ path: path, id: id }),
+                contentType: 'application/json',
+                beforeSend: function (xhr) {
+                    xhr.setRequestHeader('X-WP-Nonce', r2csAdmin.restNonce);
+                },
+                success: function (res) {
+                    if (res.success) {
+                        var statusId = '#status-' + self.escapeId(path);
+                        $(statusId).removeClass('r2cs-badge-unsynced').addClass('r2cs-badge-active').html('<span class="dashicons dashicons-yes" style="font-size:12px;width:12px;height:12px;margin-right:3px;"></span>Synced');
+                        $btn.replaceWith('<span style="color:#16a34a;font-weight:600;font-size:12px;"><span class="dashicons dashicons-yes-alt" style="vertical-align:middle;margin-top:-2px;"></span> Synced</span>');
+
+                        if (res.stats && typeof res.stats.unsynced !== 'undefined') {
+                            $('#r2cs-stat-unsynced').text(res.stats.unsynced);
+                            $('#r2cs-unsynced-badge').text(res.stats.unsynced + ' files');
+                        } else {
+                            var cur = parseInt($('#r2cs-stat-unsynced').text(), 10) || 0;
+                            if (cur > 0) {
+                                $('#r2cs-stat-unsynced').text(cur - 1);
+                                $('#r2cs-unsynced-badge').text((cur - 1) + ' files');
+                            }
+                        }
+
+                        // Also increment offloaded count in stats
+                        var offloaded = parseInt($('#r2cs-stat-offloaded').text(), 10) || 0;
+                        $('#r2cs-stat-offloaded').text(offloaded + 1);
+
+                        $('.r2cs-sync-log').show();
+                        self.addLog(res.data.message || ('Successfully synced ' + path + ' to R2'), 'success');
+                    } else {
+                        $btn.prop('disabled', false).html('<span class="dashicons dashicons-cloud-upload"></span> Retry Sync');
+                        alert(res.message || 'Failed to sync file to R2.');
+                    }
+                },
+                error: function (xhr) {
+                    $btn.prop('disabled', false).html('<span class="dashicons dashicons-cloud-upload"></span> Retry Sync');
+                    var msg = r2csAdmin.i18n.error;
+                    if (xhr.responseJSON && xhr.responseJSON.message) {
+                        msg = xhr.responseJSON.message;
+                    }
+                    alert(msg);
+                }
+            });
+        },
+
+        syncAllUnsynced: function (e) {
+            if (e) e.preventDefault();
+            // Scroll down to bulk migration tool and initiate folder sync.
+            $('html, body').animate({
+                scrollTop: $('.r2cs-sync-container').offset().top - 40
+            }, 400);
+
+            // Trigger folder sync directly
+            $('#r2cs-start-folder-sync').trigger('click');
         },
 
         /* ── License Activation ────────────────────────── */
