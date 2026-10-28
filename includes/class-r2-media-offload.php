@@ -482,9 +482,13 @@ class R2_Media_Offload {
 		// Directories to probe on disk.
 		$dirs_to_probe = array();
 
-		// Add detected sync uploads folder (e.g. /srv/htdocs/besv-uploads) as top priority.
+		// Add detected sync uploads folders as top priority.
 		$sync = r2cs()->get( 'sync' );
-		if ( $sync && method_exists( $sync, 'get_uploads_folder_path' ) ) {
+		if ( $sync && method_exists( $sync, 'get_uploads_folder_paths' ) ) {
+			foreach ( $sync->get_uploads_folder_paths() as $sf ) {
+				$dirs_to_probe[] = trailingslashit( $sf );
+			}
+		} elseif ( $sync && method_exists( $sync, 'get_uploads_folder_path' ) ) {
 			$sync_folder = $sync->get_uploads_folder_path();
 			if ( ! empty( $sync_folder ) ) {
 				$dirs_to_probe[] = trailingslashit( $sync_folder );
@@ -599,9 +603,18 @@ class R2_Media_Offload {
 	public function get_relative_path( $file, $attachment_id, $basedir ) {
 		$basedir = trailingslashit( $basedir );
 
-		// 0. If file is inside detected or configured uploads directory (e.g. /srv/htdocs/besv-uploads):
+		// 0. If file is inside detected or configured uploads directory (e.g. wp-content/uploads or besv-uploads):
 		$sync = r2cs()->get( 'sync' );
-		if ( $sync && method_exists( $sync, 'get_uploads_folder_path' ) ) {
+		if ( $sync && method_exists( $sync, 'get_uploads_folder_paths' ) ) {
+			foreach ( $sync->get_uploads_folder_paths() as $sync_folder ) {
+				if ( ! empty( $sync_folder ) ) {
+					$sync_dir = trailingslashit( $sync_folder );
+					if ( 0 === strpos( $file, $sync_dir ) ) {
+						return ltrim( substr( $file, strlen( $sync_dir ) ), '/' );
+					}
+				}
+			}
+		} elseif ( $sync && method_exists( $sync, 'get_uploads_folder_path' ) ) {
 			$sync_folder = $sync->get_uploads_folder_path();
 			if ( ! empty( $sync_folder ) ) {
 				$sync_dir = trailingslashit( $sync_folder );
@@ -919,7 +932,11 @@ class R2_Media_Offload {
 		}
 
 		$sync = function_exists( 'r2cs' ) ? r2cs()->get( 'sync' ) : null;
-		if ( $sync && method_exists( $sync, 'get_uploads_folder_path' ) ) {
+		if ( $sync && method_exists( $sync, 'get_uploads_folder_paths' ) ) {
+			foreach ( $sync->get_uploads_folder_paths() as $sf ) {
+				$folders[] = basename( $sf );
+			}
+		} elseif ( $sync && method_exists( $sync, 'get_uploads_folder_path' ) ) {
 			$sync_folder = $sync->get_uploads_folder_path();
 			if ( ! empty( $sync_folder ) ) {
 				$folders[] = basename( $sync_folder );
@@ -996,10 +1013,18 @@ class R2_Media_Offload {
 				$is_synced = $sync && method_exists( $sync, 'is_file_synced' ) ? $sync->is_file_synced( $rel ) : false;
 
 				$local_file = '';
-				if ( ! empty( $sync_folder ) && file_exists( trailingslashit( $sync_folder ) . $rel ) ) {
-					$local_file = trailingslashit( $sync_folder ) . $rel;
-				} elseif ( ! empty( $upload_basedir ) && file_exists( trailingslashit( $upload_basedir ) . $rel ) ) {
-					$local_file = trailingslashit( $upload_basedir ) . $rel;
+				if ( $sync && method_exists( $sync, 'resolve_local_file_path' ) ) {
+					$resolved = $sync->resolve_local_file_path( $rel );
+					if ( $resolved ) {
+						$local_file = $resolved;
+					}
+				}
+				if ( empty( $local_file ) ) {
+					if ( ! empty( $sync_folder ) && file_exists( trailingslashit( $sync_folder ) . $rel ) ) {
+						$local_file = trailingslashit( $sync_folder ) . $rel;
+					} elseif ( ! empty( $upload_basedir ) && file_exists( trailingslashit( $upload_basedir ) . $rel ) ) {
+						$local_file = trailingslashit( $upload_basedir ) . $rel;
+					}
 				}
 
 				// If not yet synced and local file is present on disk, ensure it is in R2 before rewriting:

@@ -343,7 +343,9 @@ class R2_REST_API {
 			'configured'  => $this->settings->is_configured(),
 			'folder'      => array(
 				'name'  => basename( (string) $this->sync->get_uploads_folder_path() ),
+				'names' => method_exists( $this->sync, 'get_uploads_folder_paths' ) ? implode( ', ', array_map( 'basename', $this->sync->get_uploads_folder_paths() ) ) : basename( (string) $this->sync->get_uploads_folder_path() ),
 				'path'  => $this->sync->get_uploads_folder_path(),
+				'paths' => method_exists( $this->sync, 'get_uploads_folder_paths' ) ? $this->sync->get_uploads_folder_paths() : array( $this->sync->get_uploads_folder_path() ),
 				'state' => $this->sync->get_folder_sync_progress(),
 			),
 			'unsynced'    => $this->sync->get_unsynced_count(),

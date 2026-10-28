@@ -173,102 +173,182 @@ class R2_Sync {
 	}
 
 	// ------------------------------------------------------------------
-	//  Direct Folder Sync (besv-uploads / UPLOADS)
+	//  Direct Folder Sync (wp-content/uploads & besv-uploads / UPLOADS)
 	// ------------------------------------------------------------------
 
 	/**
-	 * Resolve the uploads / besv-uploads root folder path.
+	 * Resolve all active and available uploads root folders on the server.
+	 *
+	 * Detects both default WordPress uploads (wp-content/uploads) and custom/legacy
+	 * directories (e.g. besv-uploads, UPLOADS constant, or custom setting).
+	 *
+	 * @return array List of unique existing absolute directory paths.
+	 */
+	public function get_uploads_folder_paths() {
+		$paths = array();
+
+		// 1. Manual user override in settings (highest priority).
+		$custom_path = $this->settings->get( 'local_uploads_path' );
+		if ( ! empty( $custom_path ) && is_dir( untrailingslashit( trim( $custom_path ) ) ) ) {
+			$paths[] = untrailingslashit( trim( $custom_path ) );
+		}
+
+		// 2. Default WordPress uploads directory from wp_upload_dir() (protected against recursion).
+		static $resolving_upload_dir = false;
+		if ( ! $resolving_upload_dir ) {
+			$resolving_upload_dir = true;
+			$upload_dir           = wp_upload_dir();
+			$resolving_upload_dir = false;
+			if ( ! empty( $upload_dir['basedir'] ) && is_dir( $upload_dir['basedir'] ) ) {
+				$paths[] = untrailingslashit( $upload_dir['basedir'] );
+			}
+		}
+
+		// 3. WP_CONTENT_DIR / uploads standard folder.
+		if ( defined( 'WP_CONTENT_DIR' ) ) {
+			$std_uploads = trailingslashit( WP_CONTENT_DIR ) . 'uploads';
+			if ( is_dir( $std_uploads ) ) {
+				$paths[] = untrailingslashit( $std_uploads );
+			}
+		}
+
+		// 4. Custom UPLOADS constant if defined in wp-config.php.
+		if ( defined( 'UPLOADS' ) && ! empty( UPLOADS ) ) {
+			$u_const      = trim( UPLOADS, '/' );
+			$u_candidates = array();
+			if ( defined( 'WP_CONTENT_DIR' ) ) {
+				$u_candidates[] = trailingslashit( dirname( WP_CONTENT_DIR ) ) . $u_const;
+				$u_candidates[] = trailingslashit( WP_CONTENT_DIR ) . $u_const;
+			}
+			if ( defined( 'ABSPATH' ) ) {
+				$u_candidates[] = trailingslashit( ABSPATH ) . $u_const;
+				$u_candidates[] = trailingslashit( dirname( ABSPATH ) ) . $u_const;
+			}
+			if ( ! empty( $_SERVER['DOCUMENT_ROOT'] ) ) {
+				$u_candidates[] = trailingslashit( $_SERVER['DOCUMENT_ROOT'] ) . $u_const;
+				$u_candidates[] = trailingslashit( dirname( $_SERVER['DOCUMENT_ROOT'] ) ) . $u_const;
+			}
+			foreach ( $u_candidates as $cand ) {
+				$clean = untrailingslashit( $cand );
+				if ( is_dir( $clean ) ) {
+					$paths[] = $clean;
+				}
+			}
+		}
+
+		// 5. 'besv-uploads' folder (root-level or inside wp-content).
+		$besv_candidates = array();
+		if ( defined( 'WP_CONTENT_DIR' ) ) {
+			$besv_candidates[] = trailingslashit( dirname( WP_CONTENT_DIR ) ) . 'besv-uploads';
+			$besv_candidates[] = trailingslashit( WP_CONTENT_DIR ) . 'besv-uploads';
+		}
+		if ( defined( 'ABSPATH' ) ) {
+			$besv_candidates[] = trailingslashit( ABSPATH ) . 'besv-uploads';
+			$besv_candidates[] = trailingslashit( dirname( ABSPATH ) ) . 'besv-uploads';
+		}
+		if ( ! empty( $_SERVER['DOCUMENT_ROOT'] ) ) {
+			$besv_candidates[] = trailingslashit( $_SERVER['DOCUMENT_ROOT'] ) . 'besv-uploads';
+		}
+		foreach ( $besv_candidates as $cand ) {
+			$clean = untrailingslashit( $cand );
+			if ( is_dir( $clean ) ) {
+				$paths[] = $clean;
+			}
+		}
+
+		$unique_paths = array_values( array_unique( array_filter( $paths ) ) );
+
+		/**
+		 * Filter all resolved uploads folder paths.
+		 *
+		 * @param array $unique_paths List of absolute folder paths.
+		 */
+		return apply_filters( 'r2cs_uploads_folder_paths', $unique_paths );
+	}
+
+	/**
+	 * Resolve the primary uploads root folder path.
+	 *
+	 * Preserves backward compatibility with filters and existing callers.
 	 *
 	 * @return string|false
 	 */
 	public function get_uploads_folder_path() {
 		// 1. Check if user configured a manual path in settings.
 		$custom_path = $this->settings->get( 'local_uploads_path' );
-		if ( ! empty( $custom_path ) ) {
+		if ( ! empty( $custom_path ) && is_dir( untrailingslashit( trim( $custom_path ) ) ) ) {
 			return apply_filters( 'r2cs_uploads_folder_path', untrailingslashit( trim( $custom_path ) ) );
 		}
 
-		$custom_uploads = defined( 'UPLOADS' ) ? trim( UPLOADS, '/' ) : 'besv-uploads';
-
-		$candidates = array();
-
-		// Priority 1: When UPLOADS is defined, it is located at root level (dirname(WP_CONTENT_DIR) or ABSPATH), NOT inside wp-content.
-		if ( defined( 'WP_CONTENT_DIR' ) && ! empty( $custom_uploads ) ) {
-			// dirname(WP_CONTENT_DIR) is /srv/htdocs
-			$candidates[] = trailingslashit( dirname( WP_CONTENT_DIR ) ) . $custom_uploads;
-		}
-
-		if ( defined( 'ABSPATH' ) && ! empty( $custom_uploads ) ) {
-			$candidates[] = trailingslashit( ABSPATH ) . $custom_uploads;
-			$candidates[] = trailingslashit( dirname( ABSPATH ) ) . $custom_uploads;
-		}
-
-		if ( ! empty( $_SERVER['DOCUMENT_ROOT'] ) && ! empty( $custom_uploads ) ) {
-			$candidates[] = trailingslashit( $_SERVER['DOCUMENT_ROOT'] ) . $custom_uploads;
-			$candidates[] = trailingslashit( dirname( $_SERVER['DOCUMENT_ROOT'] ) ) . $custom_uploads;
-		}
-
-		// Priority 2: Direct 'besv-uploads' in root directory.
-		if ( defined( 'WP_CONTENT_DIR' ) ) {
-			$candidates[] = trailingslashit( dirname( WP_CONTENT_DIR ) ) . 'besv-uploads';
-		}
-		if ( defined( 'ABSPATH' ) ) {
-			$candidates[] = trailingslashit( ABSPATH ) . 'besv-uploads';
-			$candidates[] = trailingslashit( dirname( ABSPATH ) ) . 'besv-uploads';
-		}
-		if ( ! empty( $_SERVER['DOCUMENT_ROOT'] ) ) {
-			$candidates[] = trailingslashit( $_SERVER['DOCUMENT_ROOT'] ) . 'besv-uploads';
-		}
-
-		// Priority 3: wp_upload_dir() basedir (protected against recursion).
-		static $resolving_upload_dir = false;
-		if ( ! $resolving_upload_dir ) {
-			$resolving_upload_dir = true;
-			$upload_dir = wp_upload_dir();
-			$resolving_upload_dir = false;
-			if ( ! empty( $upload_dir['basedir'] ) ) {
-				$candidates[] = untrailingslashit( $upload_dir['basedir'] );
-			}
-		}
-
-		// Priority 4 (Fallback only): Inside wp-content.
-		if ( defined( 'WP_CONTENT_DIR' ) && ! empty( $custom_uploads ) ) {
-			$candidates[] = trailingslashit( WP_CONTENT_DIR ) . $custom_uploads;
-		}
-
-		$existing = array();
-		foreach ( array_unique( $candidates ) as $dir ) {
-			$cleaned = untrailingslashit( $dir );
-			if ( ! empty( $cleaned ) && is_dir( $cleaned ) ) {
-				$existing[] = $cleaned;
-			}
-		}
-
-		if ( empty( $existing ) ) {
+		$all_paths = $this->get_uploads_folder_paths();
+		if ( empty( $all_paths ) ) {
 			return false;
 		}
 
-		// Prefer root-level directory over wp-content when UPLOADS does not contain 'wp-content'.
-		if ( false === strpos( $custom_uploads, 'wp-content' ) ) {
-			foreach ( $existing as $dir ) {
-				if ( false === strpos( $dir, '/wp-content/' ) && substr( $dir, -11 ) !== '/wp-content' ) {
-					return apply_filters( 'r2cs_uploads_folder_path', $dir );
+		// If UPLOADS is defined, prefer the folder matching UPLOADS.
+		if ( defined( 'UPLOADS' ) && ! empty( UPLOADS ) ) {
+			$u_name = basename( trim( UPLOADS, '/' ) );
+			foreach ( $all_paths as $p ) {
+				if ( basename( $p ) === $u_name ) {
+					return apply_filters( 'r2cs_uploads_folder_path', $p );
 				}
 			}
 		}
 
-		return apply_filters( 'r2cs_uploads_folder_path', $existing[0] );
+		// Otherwise, default WordPress upload basedir is primary, or first existing.
+		return apply_filters( 'r2cs_uploads_folder_path', $all_paths[0] );
 	}
 
 	/**
-	 * Scan the uploads folder recursively for all images and PDFs.
+	 * Find the absolute file path for a relative upload path across all detected upload directories.
+	 *
+	 * @param string $rel_path         Relative file path (e.g. '2024/05/photo.jpg').
+	 * @param string $preferred_folder Optional preferred folder path to check first.
+	 * @return string|false Absolute path to the file, or false if not found.
+	 */
+	public function resolve_local_file_path( $rel_path, $preferred_folder = '' ) {
+		$clean_rel = ltrim( preg_replace( '#^(?:besv-uploads/|wp-content/uploads/)#', '', $rel_path ), '/' );
+
+		// 1. Check preferred folder if specified.
+		if ( ! empty( $preferred_folder ) && is_dir( $preferred_folder ) ) {
+			$cand1 = trailingslashit( $preferred_folder ) . $clean_rel;
+			if ( file_exists( $cand1 ) ) {
+				return $cand1;
+			}
+			$cand2 = trailingslashit( $preferred_folder ) . $rel_path;
+			if ( file_exists( $cand2 ) ) {
+				return $cand2;
+			}
+		}
+
+		// 2. Check all detected upload directories (covers default wp-content/uploads, besv-uploads, etc.).
+		$folders = $this->get_uploads_folder_paths();
+		foreach ( $folders as $folder ) {
+			$cand1 = trailingslashit( $folder ) . $clean_rel;
+			if ( file_exists( $cand1 ) ) {
+				return $cand1;
+			}
+			$cand2 = trailingslashit( $folder ) . $rel_path;
+			if ( file_exists( $cand2 ) ) {
+				return $cand2;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Scan all detected uploads folders recursively for all images and PDFs.
+	 *
+	 * Automatically merges files from both default wp-content/uploads and custom/legacy folders.
 	 *
 	 * @param array $extensions Supported extensions.
-	 * @return array List of relative paths.
+	 * @param int   $limit      Maximum files to collect (0 for unlimited).
+	 * @return array List of unique relative paths.
 	 */
 	public function scan_uploads_folder( $extensions = array( 'jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'avif', 'pdf' ), $limit = 0 ) {
-		$folder = $this->get_uploads_folder_path();
-		if ( ! $folder || ! is_dir( $folder ) ) {
+		$folders = $this->get_uploads_folder_paths();
+		if ( empty( $folders ) ) {
 			return array();
 		}
 
@@ -279,28 +359,35 @@ class R2_Sync {
 			@set_time_limit( 120 );
 		}
 
-		try {
-			$dir_iterator = new \RecursiveDirectoryIterator( $folder, \FilesystemIterator::SKIP_DOTS );
-			$iterator     = new \RecursiveIteratorIterator( $dir_iterator, \RecursiveIteratorIterator::SELF_FIRST );
-			$folder_len   = strlen( trailingslashit( $folder ) );
+		foreach ( $folders as $folder ) {
+			if ( ! is_dir( $folder ) ) {
+				continue;
+			}
 
-			foreach ( $iterator as $item ) {
-				if ( $item->isFile() ) {
-					$ext       = strtolower( $item->getExtension() );
-					$pathname  = $item->getPathname();
-					if ( in_array( $ext, $extensions, true ) || preg_match( '/\.(jpe?g|png|gif)\.webp$/i', $pathname ) ) {
-						$rel     = substr( $pathname, $folder_len );
-						$files[] = ltrim( $rel, '/' );
-						if ( $limit > 0 && count( $files ) >= $limit ) {
-							break;
+			try {
+				$dir_iterator = new \RecursiveDirectoryIterator( $folder, \FilesystemIterator::SKIP_DOTS );
+				$iterator     = new \RecursiveIteratorIterator( $dir_iterator, \RecursiveIteratorIterator::SELF_FIRST );
+				$folder_len   = strlen( trailingslashit( $folder ) );
+
+				foreach ( $iterator as $item ) {
+					if ( $item->isFile() ) {
+						$ext      = strtolower( $item->getExtension() );
+						$pathname = $item->getPathname();
+						if ( in_array( $ext, $extensions, true ) || preg_match( '/\.(jpe?g|png|gif)\.webp$/i', $pathname ) ) {
+							$rel     = substr( $pathname, $folder_len );
+							$files[] = ltrim( $rel, '/' );
+							if ( $limit > 0 && count( $files ) >= $limit ) {
+								break 2;
+							}
 						}
 					}
 				}
+			} catch ( \Exception $e ) {
+				// Fallback: directory iterator failed for this folder, continue to next.
 			}
-		} catch ( \Exception $e ) {
-			// Fallback: directory iterator failed.
 		}
 
+		$files = array_values( array_unique( array_filter( $files ) ) );
 		sort( $files );
 		return $files;
 	}
@@ -312,8 +399,8 @@ class R2_Sync {
 	 * @return array { total: int, folder: string, resumed: bool, remaining: int }
 	 */
 	public function init_folder_sync( $force_restart = false ) {
-		$folder = $this->get_uploads_folder_path();
-		if ( ! $folder || ! is_dir( $folder ) ) {
+		$folders = $this->get_uploads_folder_paths();
+		if ( empty( $folders ) ) {
 			return array(
 				'total'     => 0,
 				'folder'    => '',
@@ -322,35 +409,40 @@ class R2_Sync {
 			);
 		}
 
+		$folders_key    = implode( '|', $folders );
+		$folder_names   = implode( ', ', array_map( 'basename', $folders ) );
 		$existing_state = get_option( 'r2cs_folder_sync_state', false );
 
-		// Resume existing queue if one exists with remaining files for the same folder, unless force_restart is requested.
-		if ( ! $force_restart && is_array( $existing_state ) && ! empty( $existing_state['queue'] ) && ( $existing_state['folder'] ?? '' ) === $folder ) {
+		// Resume existing queue if one exists with remaining files for the same folders, unless force_restart is requested.
+		if ( ! $force_restart && is_array( $existing_state ) && ! empty( $existing_state['queue'] ) && ( ( $existing_state['folders_key'] ?? ( $existing_state['folder'] ?? '' ) ) === $folders_key || ( $existing_state['folder'] ?? '' ) === $folders[0] ) ) {
 			return array(
 				'total'     => isset( $existing_state['total'] ) ? (int) $existing_state['total'] : count( $existing_state['queue'] ),
-				'folder'    => basename( $folder ),
+				'folder'    => $folder_names,
 				'resumed'   => true,
 				'remaining' => count( $existing_state['queue'] ),
 			);
 		}
 
-		$files  = $this->scan_uploads_folder( array( 'jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'avif', 'pdf' ), 0 );
+		$files = $this->scan_uploads_folder( array( 'jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'avif', 'pdf' ), 0 );
 
 		$state = array(
-			'folder'    => $folder,
-			'total'     => count( $files ),
-			'queue'     => $files,
-			'synced'    => 0,
-			'skipped'   => 0,
-			'errors'    => array(),
-			'timestamp' => time(),
+			'folder'        => $folders[0],
+			'folders'       => $folders,
+			'folders_key'   => $folders_key,
+			'folders_label' => $folder_names,
+			'total'         => count( $files ),
+			'queue'         => $files,
+			'synced'        => 0,
+			'skipped'       => 0,
+			'errors'        => array(),
+			'timestamp'     => time(),
 		);
 
 		update_option( 'r2cs_folder_sync_state', $state, false );
 
 		return array(
 			'total'     => $state['total'],
-			'folder'    => basename( $folder ),
+			'folder'    => $folder_names,
 			'resumed'   => false,
 			'remaining' => $state['total'],
 		);
@@ -406,13 +498,14 @@ class R2_Sync {
 
 		foreach ( $batch as $rel_path ) {
 			$results['processed']++;
-			$local_file = trailingslashit( $folder ) . $rel_path;
-			$remote_key = trailingslashit( $prefix ) . $rel_path;
+			$clean_rel  = ltrim( preg_replace( '#^(?:besv-uploads/|wp-content/uploads/)#', '', $rel_path ), '/' );
+			$local_file = $this->resolve_local_file_path( $rel_path, $folder );
+			$remote_key = trailingslashit( $prefix ) . $clean_rel;
 
-			if ( ! file_exists( $local_file ) ) {
+			if ( ! $local_file || ! file_exists( $local_file ) ) {
 				$results['errors'][] = array(
 					'file'    => $rel_path,
-					'message' => __( 'File not found on disk', 'r2-cloud-storage' ),
+					'message' => __( 'File not found on disk in any upload folder', 'r2-cloud-storage' ),
 				);
 				continue;
 			}
@@ -422,11 +515,12 @@ class R2_Sync {
 			$attachment_id = (int) $wpdb->get_var( $wpdb->prepare(
 				"SELECT post_id FROM {$wpdb->postmeta}
 				 WHERE meta_key = '_wp_attached_file'
-				   AND ( meta_value = %s OR meta_value = %s OR meta_value LIKE %s )
+				   AND ( meta_value = %s OR meta_value = %s OR meta_value = %s OR meta_value LIKE %s )
 				 LIMIT 1",
-				$rel_path,
-				'besv-uploads/' . $rel_path,
-				'%' . $wpdb->esc_like( $rel_path )
+				$clean_rel,
+				'wp-content/uploads/' . $clean_rel,
+				'besv-uploads/' . $clean_rel,
+				'%' . $wpdb->esc_like( $clean_rel )
 			) );
 
 			if ( $skip_existing ) {
@@ -450,7 +544,7 @@ class R2_Sync {
 					$results['synced']++;
 					$results['skipped']++;
 
-					$this->mark_file_synced( $rel_path, $attachment_id, $remote_key );
+					$this->mark_file_synced( $clean_rel, $attachment_id, $remote_key );
 
 					if ( ! $this->settings->get( 'keep_local_uploads', true ) && $remove_local && file_exists( $local_file ) ) {
 						// Safety check: before deleting an existing file, ensure it exists in R2.
@@ -481,7 +575,7 @@ class R2_Sync {
 				$results['success']++;
 				$results['synced']++;
 
-				$this->mark_file_synced( $rel_path, $attachment_id, $remote_key );
+				$this->mark_file_synced( $clean_rel, $attachment_id, $remote_key );
 
 				if ( ! $this->settings->get( 'keep_local_uploads', true ) && $remove_local && file_exists( $local_file ) ) {
 					wp_delete_file( $local_file );
@@ -517,7 +611,10 @@ class R2_Sync {
 	 * @return array
 	 */
 	public function get_folder_sync_progress() {
-		$state = get_option( 'r2cs_folder_sync_state', false );
+		$folders      = $this->get_uploads_folder_paths();
+		$folder_names = ! empty( $folders ) ? implode( ', ', array_map( 'basename', $folders ) ) : basename( (string) $this->get_uploads_folder_path() );
+		$state        = get_option( 'r2cs_folder_sync_state', false );
+
 		if ( empty( $state ) || ! is_array( $state ) ) {
 			return array(
 				'total'      => 0,
@@ -525,7 +622,7 @@ class R2_Sync {
 				'deleted'    => 0,
 				'remaining'  => 0,
 				'percentage' => 0,
-				'folder'     => basename( (string) $this->get_uploads_folder_path() ),
+				'folder'     => $folder_names,
 			);
 		}
 
@@ -541,7 +638,7 @@ class R2_Sync {
 			'deleted'    => $deleted,
 			'remaining'  => $remaining,
 			'percentage' => $pct,
-			'folder'     => basename( (string) ( $state['folder'] ?? '' ) ),
+			'folder'     => ! empty( $state['folders_label'] ) ? $state['folders_label'] : $folder_names,
 		);
 	}
 
@@ -601,8 +698,8 @@ class R2_Sync {
 	 * @return array { total: int, items: array, limit: int, offset: int, folder: string }
 	 */
 	public function get_unsynced_files( $limit = 50, $offset = 0, $search = '' ) {
-		$folder = $this->get_uploads_folder_path();
-		if ( ! $folder || ! is_dir( $folder ) ) {
+		$folders = $this->get_uploads_folder_paths();
+		if ( empty( $folders ) ) {
 			return array(
 				'total'  => 0,
 				'items'  => array(),
@@ -619,7 +716,7 @@ class R2_Sync {
 				'items'  => array(),
 				'limit'  => $limit,
 				'offset' => $offset,
-				'folder' => basename( $folder ),
+				'folder' => implode( ', ', array_map( 'basename', $folders ) ),
 			);
 		}
 
@@ -663,10 +760,10 @@ class R2_Sync {
 			}
 		}
 
-		$folder_dir  = trailingslashit( $folder );
 		$site_url    = function_exists( 'site_url' ) ? site_url() : '';
-		$folder_name = basename( $folder );
-		$folder_url  = untrailingslashit( $site_url ) . '/' . $folder_name;
+		$wp_uploads  = function_exists( 'wp_upload_dir' ) ? wp_upload_dir() : array();
+		$wp_baseurl  = ! empty( $wp_uploads['baseurl'] ) ? $wp_uploads['baseurl'] : ( untrailingslashit( $site_url ) . '/wp-content/uploads' );
+		$folder_name = implode( ', ', array_map( 'basename', $folders ) );
 
 		$unsynced = array();
 		foreach ( $all_files as $rel_path ) {
@@ -682,19 +779,40 @@ class R2_Sync {
 				continue;
 			}
 
-			$full_path = $folder_dir . $rel_path;
-			$size      = file_exists( $full_path ) ? (int) @filesize( $full_path ) : 0;
-			$mtime     = file_exists( $full_path ) ? (int) @filemtime( $full_path ) : 0;
+			$full_path = $this->resolve_local_file_path( $rel_path );
+			$size      = ( $full_path && file_exists( $full_path ) ) ? (int) @filesize( $full_path ) : 0;
+			$mtime     = ( $full_path && file_exists( $full_path ) ) ? (int) @filemtime( $full_path ) : 0;
 			$ext       = strtolower( pathinfo( $rel_path, PATHINFO_EXTENSION ) );
 			$is_image  = in_array( $ext, array( 'jpg', 'jpeg', 'png', 'gif', 'webp', 'avif', 'svg' ), true );
 			$att_id    = $attachments_map[ $clean_path ] ?? 0;
 
-			$file_url = $folder_url . '/' . $rel_path;
+			// Determine source folder and URL.
+			$folder_label = 'uploads';
+			$file_url     = '';
+
+			if ( $att_id > 0 ) {
+				$file_url = wp_get_attachment_url( $att_id );
+			}
+
+			if ( empty( $file_url ) ) {
+				if ( $full_path && false !== strpos( $full_path, 'besv-uploads' ) ) {
+					$folder_label = 'besv-uploads';
+					$file_url     = untrailingslashit( $site_url ) . '/besv-uploads/' . $clean_path;
+				} else {
+					$folder_label = 'wp-content/uploads';
+					$file_url     = trailingslashit( $wp_baseurl ) . $clean_path;
+				}
+			} elseif ( $full_path && false !== strpos( $full_path, 'besv-uploads' ) ) {
+				$folder_label = 'besv-uploads';
+			} else {
+				$folder_label = 'wp-content/uploads';
+			}
 
 			$unsynced[] = array(
 				'id'             => $att_id,
-				'path'           => $rel_path,
-				'filename'       => basename( $rel_path ),
+				'path'           => $clean_path,
+				'filename'       => basename( $clean_path ),
+				'folder'         => $folder_label,
 				'size_bytes'     => $size,
 				'size_formatted' => size_format( $size, 1 ),
 				'date'           => $mtime > 0 ? gmdate( 'Y-m-d H:i', $mtime ) : '',
@@ -735,14 +853,13 @@ class R2_Sync {
 	 * @return array|\WP_Error
 	 */
 	public function sync_single_file( $rel_path, $attachment_id = 0 ) {
-		$folder     = $this->get_uploads_folder_path();
 		$clean_rel  = ltrim( preg_replace( '#^(?:besv-uploads/|wp-content/uploads/)#', '', $rel_path ), '/' );
-		$local_file = trailingslashit( $folder ) . $clean_rel;
+		$local_file = $this->resolve_local_file_path( $rel_path );
 		$prefix     = $this->settings->get( 'path_prefix', 'wp-content/uploads/' );
 		$remote_key = trailingslashit( $prefix ) . $clean_rel;
 
-		if ( ! file_exists( $local_file ) ) {
-			return new \WP_Error( 'r2cs_file_not_found', sprintf( __( 'Local file not found on disk: %s', 'r2-cloud-storage' ), $local_file ) );
+		if ( ! $local_file || ! file_exists( $local_file ) ) {
+			return new \WP_Error( 'r2cs_file_not_found', sprintf( __( 'Local file not found on disk in any upload directory: %s', 'r2-cloud-storage' ), $clean_rel ) );
 		}
 
 		// If attachment ID was not passed, check if one matches in DB.
@@ -752,9 +869,10 @@ class R2_Sync {
 			$attachment_id = (int) $wpdb->get_var( $wpdb->prepare(
 				"SELECT post_id FROM {$wpdb->postmeta}
 				 WHERE meta_key = '_wp_attached_file'
-				   AND ( meta_value = %s OR meta_value = %s OR meta_value LIKE %s )
+				   AND ( meta_value = %s OR meta_value = %s OR meta_value = %s OR meta_value LIKE %s )
 				 LIMIT 1",
 				$clean_rel,
+				'wp-content/uploads/' . $clean_rel,
 				'besv-uploads/' . $clean_rel,
 				'%' . $wpdb->esc_like( $clean_rel )
 			) );

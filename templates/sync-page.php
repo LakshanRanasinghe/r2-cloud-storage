@@ -12,9 +12,10 @@ $r2cs_configured = $r2cs_settings->is_configured();
 $r2cs_sync       = r2cs()->get( 'sync' );
 $r2cs_media      = r2cs()->get( 'media' );
 $r2cs_stats      = $r2cs_media ? $r2cs_media->get_stats() : array( 'total' => 0, 'offloaded' => 0, 'failed' => 0, 'pending' => 0 );
-$uploads_folder  = $r2cs_sync ? $r2cs_sync->get_uploads_folder_path() : '';
+$uploads_folders = $r2cs_sync && method_exists( $r2cs_sync, 'get_uploads_folder_paths' ) ? $r2cs_sync->get_uploads_folder_paths() : ( $r2cs_sync ? array_filter( array( $r2cs_sync->get_uploads_folder_path() ) ) : array() );
+$uploads_folder  = ! empty( $uploads_folders ) ? $uploads_folders[0] : ( $r2cs_sync ? $r2cs_sync->get_uploads_folder_path() : '' );
 $custom_override = $r2cs_settings ? $r2cs_settings->get( 'local_uploads_path' ) : '';
-$folder_name     = $uploads_folder ? basename( $uploads_folder ) : 'besv-uploads';
+$folder_name     = ! empty( $uploads_folders ) ? implode( ', ', array_map( 'basename', $uploads_folders ) ) : ( $uploads_folder ? basename( $uploads_folder ) : 'uploads' );
 $unsynced_count  = isset( $r2cs_stats['pending'] ) ? (int) $r2cs_stats['pending'] : 0;
 ?>
 <div class="wrap r2cs-wrap">
@@ -138,9 +139,9 @@ $unsynced_count  = isset( $r2cs_stats['pending'] ) ? (int) $r2cs_stats['pending'
 			<!-- Empty State -->
 			<div id="r2cs-unsynced-empty" style="display: none; padding: 36px 20px; text-align: center; background: #f6f7f7; border-radius: 6px; margin-top: 10px;">
 				<span class="dashicons dashicons-yes-alt" style="font-size: 42px; color: #46b450; width: 42px; height: 42px; margin-bottom: 8px;"></span>
-				<h3 style="margin: 4px 0 8px;"><?php esc_html_e( 'All Files in besv-uploads Are Synced!', 'r2-cloud-storage' ); ?></h3>
+				<h3 style="margin: 4px 0 8px;"><?php printf( esc_html__( 'All Files in %s Are Synced!', 'r2-cloud-storage' ), esc_html( $folder_name ) ); ?></h3>
 				<p style="margin: 0; color: #646970; max-width: 600px; margin-left: auto; margin-right: auto;">
-					<?php esc_html_e( 'All media files are safely stored locally in besv-uploads and offloaded to Cloudflare R2. Any new media uploaded from frontend or backend will appear here ready to sync.', 'r2-cloud-storage' ); ?>
+					<?php printf( esc_html__( 'All media files are safely stored locally in %s and offloaded to Cloudflare R2. Any new media uploaded from frontend or backend will appear here ready to sync.', 'r2-cloud-storage' ), esc_html( $folder_name ) ); ?>
 				</p>
 			</div>
 
@@ -161,20 +162,30 @@ $unsynced_count  = isset( $r2cs_stats['pending'] ) ? (int) $r2cs_stats['pending'
 					<?php esc_html_e( 'Bulk sync all images (including companion .webp files), thumbnails, and PDF documents from your WordPress uploads folder to Cloudflare R2.', 'r2-cloud-storage' ); ?>
 				</p>
 
-				<?php if ( $uploads_folder ) : ?>
+				<?php if ( ! empty( $uploads_folders ) || $uploads_folder ) : ?>
 					<div class="notice notice-info inline" style="margin: 12px 0; padding: 10px 14px; border-left-color: #2271b1;">
 						<p style="margin: 4px 0;">
-							<strong><?php echo ! empty( $custom_override ) ? esc_html__( 'Configured Uploads Directory:', 'r2-cloud-storage' ) : esc_html__( 'Detected Uploads Directory:', 'r2-cloud-storage' ); ?></strong>
-							<code style="font-weight: 600; font-size: 13px;"><?php echo esc_html( $uploads_folder ); ?></code>
-							<?php if ( defined( 'UPLOADS' ) ) : ?>
-								<span class="r2cs-badge r2cs-badge-success" style="margin-left: 6px;"><?php echo esc_html( 'UPLOADS: ' . UPLOADS ); ?></span>
+							<strong><?php echo ! empty( $custom_override ) ? esc_html__( 'Configured Uploads Directory:', 'r2-cloud-storage' ) : ( count( $uploads_folders ) > 1 ? esc_html__( 'Detected Uploads Directories:', 'r2-cloud-storage' ) : esc_html__( 'Detected Uploads Directory:', 'r2-cloud-storage' ) ); ?></strong>
+							<?php if ( ! empty( $uploads_folders ) ) : ?>
+								<?php foreach ( $uploads_folders as $f_path ) : ?>
+									<code style="font-weight: 600; font-size: 13px; margin-right: 4px;"><?php echo esc_html( $f_path ); ?></code>
+									<?php if ( defined( 'UPLOADS' ) && false !== strpos( $f_path, trim( UPLOADS, '/' ) ) ) : ?>
+										<span class="r2cs-badge r2cs-badge-success" style="margin-right: 8px;"><?php echo esc_html( 'UPLOADS: ' . UPLOADS ); ?></span>
+									<?php elseif ( false !== strpos( $f_path, 'wp-content/uploads' ) ) : ?>
+										<span class="r2cs-badge r2cs-badge-info" style="margin-right: 8px;"><?php esc_html_e( 'Default WP Uploads', 'r2-cloud-storage' ); ?></span>
+									<?php elseif ( false !== strpos( $f_path, 'besv-uploads' ) ) : ?>
+										<span class="r2cs-badge r2cs-badge-warning" style="margin-right: 8px;"><?php esc_html_e( 'besv-uploads', 'r2-cloud-storage' ); ?></span>
+									<?php endif; ?>
+								<?php endforeach; ?>
+							<?php else : ?>
+								<code style="font-weight: 600; font-size: 13px;"><?php echo esc_html( $uploads_folder ); ?></code>
 							<?php endif; ?>
 						</p>
 						<p style="margin: 4px 0 0; font-size: 12px; color: #646970;">
 							<?php
 							printf(
 								/* translators: %s: link to settings page */
-								esc_html__( 'Need to override this path? You can specify your directory path in %s.', 'r2-cloud-storage' ),
+								esc_html__( 'Sync automatically detects default WordPress uploads (wp-content/uploads) and custom folders. Need to specify a custom path? You can configure it in %s.', 'r2-cloud-storage' ),
 								'<a href="' . esc_url( admin_url( 'admin.php?page=r2-cloud-storage' ) ) . '">' . esc_html__( 'Settings &rarr; Local Uploads Directory Path', 'r2-cloud-storage' ) . '</a>'
 							);
 							?>

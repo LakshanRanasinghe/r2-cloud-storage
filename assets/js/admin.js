@@ -522,6 +522,7 @@
                                     '<strong style="font-size: 13px; color: #1d2327;">' + item.filename + '</strong>' +
                                     '<div style="font-size: 11px; color: #646970; margin-top: 2px;">' +
                                         '<code class="r2cs-file-path">' + item.path + '</code>' +
+                                        (item.folder ? ' <span style="font-size:10px;padding:1px 5px;background:#f0f0f1;border-radius:3px;color:#50575e;margin-left:4px;">' + item.folder + '</span>' : '') +
                                     '</div>' +
                                 '</td>' +
                                 '<td style="vertical-align: middle; color: #50575e; font-size: 12px;">' + (item.size_formatted || '—') + '</td>' +
